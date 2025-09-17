@@ -36,7 +36,7 @@ train:
   val_batch_size: 8                # larger no-grad batches speed up eval
 
   use_peft: false
-  output_dir: outputs_3b_base_360h/
+  output_dir: outputs_3b_lin_proj_100h/
   freeze_layers: false
   num_freeze_layers: 0
   quantization: false
@@ -81,8 +81,8 @@ log:
   use_wandb: true
   wandb_dir: ./wandb
   wandb_entity_name: ASRLLM
-  wandb_project_name: ASRLLM_3B_base_360h
-  wandb_exp_name: exp_llama32_3b_whisper_base_linear_360h
+  wandb_project_name: ASRLLM_3B_lin_proj_100h
+  wandb_exp_name: exp_llama32_3b_lin_proj_100h
   log_dir: ./logs
-  log_filename: train_3b_360h.log
+  log_filename: train_3b_lin_proj_100h.log
   log_interval: 50
