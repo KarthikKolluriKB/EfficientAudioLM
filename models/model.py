@@ -72,7 +72,6 @@ def setup_llm(train_config, model_config, **kwargs):
             load_in_8bit=True if train_config.quantization else None,
             device_map="auto" if train_config.quantization else None,
     )
-
     print_module_size(model, model_config.llm_model_name)
 
     if train_config.quantization:
@@ -161,11 +160,10 @@ class ASRLLM(nn.Module):
         if audio_mel is None: 
             raise ValueError("audio_mel is required for direct spectorgram pipeline")
 
-        # 1. Projector 
-        with torch.no_grad() if getattr(self.train_config, "freeze_llm", False) else torch.enable_grad():
-            enc_tok = self.projector(audio_mel)  # [B, T_a, D_llm]
+        # 1) Projector Mel -> LLM token embeddings
+        enc_tok = self.projector(audio_mel)  # [B, T_a, D_llm]
 
-        # 2. Token embedding 
+        # 2) Embed prompt tokens
         token_embeds = None 
         if input_ids is not None: 
             # Santize any placeholder ids for embedding lookup
@@ -179,21 +177,21 @@ class ASRLLM(nn.Module):
             else:
                 token_embeds = self.llm.get_input_embeddings()(input_ids)
         
-        # Cast to LLM dtype (e.g., bfloat16)
+        # 3) Align dtypes with LLM
         llm_dtype = next(self.llm.parameters()).dtype
         if enc_tok.dtype != llm_dtype:
             enc_tok = enc_tok.to(llm_dtype)
         if token_embeds is not None and token_embeds.dtype != llm_dtype:
             token_embeds = token_embeds.to(llm_dtype)
 
-        # 4. Concat encoder feature and token embeddings (audio prefix + text token embeddings)
+        # 4) Concat encoder feature and token embeddings (audio prefix + text token embeddings)
         # Concatenate audio tokens + prompt tokens
         if token_embeds is not None:
-            inputs_embeds = torch.cat([enc_tok, token_embeds], dim=1)  # [B, T_a + T_text, D]
+            inputs_embeds = torch.cat([enc_tok, token_embeds], dim=1)  # [B, T_audio + T_text, D]
         else:
             inputs_embeds = enc_tok
 
-        # 5. Build attention mask aligned with inputs_embeds
+        # 5) Build attention mask aligned with inputs_embeds
         # Build attention mask
         B, T_total, _ = inputs_embeds.size()
         T_audio = enc_tok.size(1)
@@ -203,7 +201,7 @@ class ASRLLM(nn.Module):
         else:
             attention_mask = torch.ones((B, T_total), dtype=torch.long, device=inputs_embeds.device)
 
-        # 6. Labels: ignore loss on audio prefix (mask with ignore_index e.g: -100)
+        # 6) Labels: ignore loss on audio prefix (mask with ignore_index e.g: -100)
         if labels is not None: 
             if labels.dim() != 2: 
                 raise ValueError("Labels should be of shape 2D (B, T_text) for cross-entropy loss.")
@@ -214,7 +212,7 @@ class ASRLLM(nn.Module):
         if kwargs.get("inference_mode", False): 
             return inputs_embeds, attention_mask
         
-        # Forward through LLM using inputs_embeds only 
+        # 7) Forward through LLM using inputs_embeds only 
         llm_kwargs = {
             "inputs_embeds": inputs_embeds,
             "attention_mask": attention_mask,
@@ -243,17 +241,28 @@ class ASRLLM(nn.Module):
         return model_outputs, metrics
     
     @torch.no_grad()
-    def inference(self, audio_mel: torch.Tensor, prompt: str = "", max_new_tokens: int = 64,
-                  temperature: float = 0.7, top_p: float = 0.9, num_beams: int = 1,
-                  do_sample: bool = None, device: str = None, **gen_kwargs):
+    def inference(
+        self,
+        audio_mel: torch.Tensor,
+        prompt: str = "",
+        max_new_tokens: int = 64,
+        temperature: float = 0.7,
+        top_p: float = 0.9,
+        num_beams: int = 1,
+        do_sample: bool = None,
+        device: str = None,
+        **gen_kwargs,
+    ):
         if device is None:
             device = next(self.parameters()).device
         llm_dtype = next(self.llm.parameters()).dtype
+
         if audio_mel.dim() == 2:
             audio_mel = audio_mel.unsqueeze(0)
         audio_mel = audio_mel.to(device, dtype=llm_dtype)
 
-        enc = self.tokenizer(prompt, return_tensors="pt", add_special_tokens=False)  # plain prompt for base Llama
+        # Prompt tokens (plain string for base Llama)
+        enc = self.tokenizer(prompt, return_tensors="pt", add_special_tokens=False)
         input_ids = enc["input_ids"].to(device)
         attention_mask = enc["attention_mask"].to(device)
 
@@ -275,10 +284,10 @@ class ASRLLM(nn.Module):
             eos_token_id=self.tokenizer.eos_token_id,
             pad_token_id=self.tokenizer.pad_token_id,
             use_cache=True,
-            **gen_kwargs
+            **gen_kwargs,
         )
-        # When passing inputs_embeds, return is only newly generated tokens
+        # With inputs_embeds, generate returns only newly generated tokens
         texts = self.tokenizer.batch_decode(gen_ids, skip_special_tokens=True)
         if audio_mel.size(0) == 1:
-            texts = texts
+            texts = texts[0]
         return texts
