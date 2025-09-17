@@ -8,6 +8,7 @@ from torch.nn.utils import clip_grad_norm_
 from omegaconf import OmegaConf
 
 # internal imports
+import warnings
 from utils.utils import set_seed, get_device, resolve_pad_token, ensure_dir, save_projector
 from utils.log_config import get_logger
 from utils.wand_config import init_wandb
@@ -15,6 +16,14 @@ from models.model import model_builder
 from datamodule.dataset import get_speech_dataset
 from torchtnt.utils.early_stop_checker import EarlyStopChecker
 #from torch.optim.lr_scheduler import ReduceLROnPlateau
+
+# warnings
+warnings.filterwarnings(
+    "ignore",
+    message=".*will be changed to use torchaudio.load_with_torchcodec.*",
+    category=UserWarning,
+)
+
 
 def evaluate(model, dataloader, device):
     model.eval()
