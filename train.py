@@ -177,7 +177,7 @@ def main():
             optimizer.zero_grad(set_to_none=True)
 
             if use_autocast:
-                with torch.autocast(device_type=device.type, dtype=amp_dtype, enabled=use_autocast): 
+                with torch.autocast(device_type=device, dtype=amp_dtype, enabled=use_autocast): 
                     # Forward pass
                     outputs, metrics = model(
                         input_ids=input_ids,
