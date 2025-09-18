@@ -112,10 +112,9 @@ def main():
     logger.info(f"Model initialized with {sum(p.numel() for p in model.parameters() if p.requires_grad)} trainable parameters")
 
     # Dataset and DataLoader
-    # FIXME: currently only support train dataset )
-    split = cfg.data.get("train_split", cfg.data.get("test_split", "train"))
+    train_split = cfg.data.get("train_split", cfg.data.get("test_split", "train"))
 
-    train_ds = get_speech_dataset(cfg.data, tokenizer, split=split)
+    train_ds = get_speech_dataset(cfg.data, tokenizer, split=train_split)
     train_dataloader = DataLoader(
         train_ds, 
         batch_size=cfg.train.batch_size,
@@ -151,7 +150,7 @@ def main():
             use_wand=True, 
             project=cfg.log.wandb_project_name,
             run_name=cfg.log.wandb_exp_name,
-            tags=[cfg.model.llm_model_name, cfg.model.projector, "mel-projector-only"],
+            tags=[cfg.model.llm_model_name, cfg.model.projector, "patched-linear-projector"],
             config=OmegaConf.to_container(cfg, resolve=True)
         )
         logger.info("Initialized W&B run")
