@@ -1,6 +1,6 @@
-import logging
+from utils.log_config import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger(log_dir="logs")
 
 
 def print_model_size(model, config) -> None:
