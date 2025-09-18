@@ -88,9 +88,13 @@ def setup_llm(train_config, model_config, **kwargs):
 
 
 def setup_projector(train_config, model_config, **kwargs):
-    from models.projector import MelProjectorLinear
-    projector = MelProjectorLinear(model_config)
-    print_module_size(projector, "mel-linear")
+    if model_config.projector == "linear":
+        from models.projector import LinearProjector
+        projector = LinearProjector(model_config)
+    elif model_config.projector == "patched_linear":
+        from models.projector import PatchedProjector
+        projector = PatchedProjector(model_config)
+    print_module_size(projector, "linear-projector")
     return projector
 
 
