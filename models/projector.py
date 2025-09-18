@@ -4,7 +4,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 
-class MelProjectorLinear(nn.Module):
+class LinearProjector(nn.Module):
     """
     Direct Mel -> token projector for encoder-free ASR.
 
@@ -88,3 +88,89 @@ class MelProjectorLinear(nn.Module):
         x = self.dropout(x)
 
         return x
+    
+
+class PatchedProjector(nn.Module):
+    """
+    """
+    def __init__(self, model_config):
+        super().__init__()
+        # Core dims
+        self.mel_bins = int(getattr(model_config, "mel_size", 80))
+        self.llm_dim  = int(getattr(model_config, "llm_dim", 3072))
+
+        # Token-rate control (how often we start a patch)
+        self.time_stride = int(getattr(model_config, "mel_time_stride", 8))
+
+        # Receptive field control per token (how many frames each token sees)
+        self.ds_rate  = int(getattr(model_config, "projector_ds_rate", 4))
+
+        # Optional input normalization and dropout on token embeddings
+        self.use_input_norm = bool(getattr(model_config, "mel_input_norm", False))
+        self.dropout_p  = float(getattr(model_config, "mel_dropout", 0.0))
+
+        # Derive patching parameters:
+        # stride = time_stride (token every `time_stride` frames)
+        # patch_size = time_stride * ds_rate (each token sees ds_rate * stride frames)
+        self.stride = max(1, self.time_stride)
+        self.patch_size = max(self.stride, self.time_stride * self.ds_rate)
+
+        # Linear projection per patch (80*P -> D)
+        self.in_dim = self.mel_bins * self.patch_size
+        self.proj   = nn.Linear(self.in_dim, self.llm_dim, bias=True)
+        self.drop   = nn.Dropout(self.dropout_p) if self.dropout_p > 0.0 else nn.Identity()
+
+
+    @staticmethod
+    def _norm_over_time(mel: torch.Tensor, eps: float = 1e-6) -> torch.Tensor:
+        # Normalize each mel bin over time: (x - mean_t) / std_t
+        mean = mel.mean(dim=-1, keepdim=True)
+        var  = mel.var(dim=-1, unbiased=False, keepdim=True)
+        std  = (var + eps).sqrt()
+        return (mel - mean) / std
+    
+    def count_patches(self, T: int) -> int:
+        # Number of patches along time for a given T
+        if T < self.patch_size:
+            T = self.patch_size
+        return (T - self.patch_size) // self.stride + 1
+
+
+    def forward(self, mel: torch.Tensor) -> torch.Tensor:
+        """
+        mel: [B, 80, T] or [B, T, 80]
+        return: [B, N, D]
+        """ 
+        if mel.dim() != 3:
+            raise ValueError(f"mel must be 3D [B, 80, T] or [B, T, 80], got {mel.shape}")
+
+        # Ensure [B, 80, T]
+        if mel.shape[1] == self.mel_bins:
+            pass
+        elif mel.shape[2] == self.mel_bins:
+            mel = mel.transpose(1, 2)  # [B, 80, T]
+        else:
+            raise ValueError(f"Expected {self.mel_bins} mel bins on dim=1 or dim=2, got {mel.shape}")
+
+        # Input Normalization (per mel bin over time)
+        if self.use_input_norm:
+            mel = self._norm_over_time(mel)
+
+        B, C, T = mel.shape  # C should be self.mel_bins
+
+        # Right-pad time so at least one patch exists
+        if T < self.patch_size:
+            mel = F.pad(mel, (0, self.patch_size - T), value=0.0)
+            T = mel.shape[-1]
+
+        # Extract time patches: [B, 80, N, P]
+        patches = mel.unfold(dimension=2, size=self.patch_size, step=self.stride)
+
+        # Flatten per patch to [B, N, 80*P]
+        B, C, N, P = patches.shape
+        patches = patches.permute(0, 2, 1, 3).contiguous().view(B, N, C * P)
+
+        # Project to LM dim and apply dropout: [B, N, D]
+        tokens = self.proj(patches)
+        tokens = self.drop(tokens)
+        return tokens
