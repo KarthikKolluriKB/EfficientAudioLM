@@ -25,10 +25,13 @@ warnings.filterwarnings(
 )
 
 
-def evaluate(model, dataloader, device):
+def evaluate(cfg, model, dataloader, device):
     model.eval()
     total_loss, n_batches = 0.0, 0
-    num_correct, num_total = 0, 0  # Ensure these are always initialized
+    num_correct, num_total = 0, 0
+
+    use_autocast = bool(cfg.train.mixed_precision and getattr(device, "type", str(device)) == "cuda")
+    amp_dtype = torch.bfloat16 if (torch.cuda.is_available() and torch.cuda.is_bf16_supported()) else torch.float16
 
     with torch.no_grad():
         for batch in dataloader:
@@ -36,15 +39,23 @@ def evaluate(model, dataloader, device):
             attention_mask = batch["attention_mask"].to(device)
             labels = batch["labels"].to(device)
             audio_mel = batch["audio_mel"].to(device)
-            outputs, metrics = model(
-                input_ids=input_ids,
-                attention_mask=attention_mask,
-                labels=labels,
-                audio_mel=audio_mel,
-            )
+            if use_autocast:
+                with torch.autocast(device_type=device, dtype=amp_dtype, enabled=use_autocast):
+                    outputs, metrics = model(
+                        input_ids=input_ids,
+                        attention_mask=attention_mask,
+                        labels=labels,
+                        audio_mel=audio_mel,
+                    )
+            else:
+                outputs, metrics = model(
+                    input_ids=input_ids,
+                    attention_mask=attention_mask,
+                    labels=labels,
+                    audio_mel=audio_mel,
+                )
             total_loss += outputs.loss.item()
             n_batches += 1
-
             if metrics is not None:
                 num_correct += metrics.get("num_correct", 0)
                 num_total  += metrics.get("num_total", 0)
@@ -241,7 +252,7 @@ def main():
 
 
         # Validation at the end of each epoch
-        val_loss, val_acc = evaluate(model, val_dataloader, device)
+        val_loss, val_acc = evaluate(cfg, model, val_dataloader, device)
         logger.info(f"Epoch {epoch} Validation Loss: {val_loss:.4f}, Validation Acc: {val_acc:.4f}")
         if run is not None: 
             run.log({
