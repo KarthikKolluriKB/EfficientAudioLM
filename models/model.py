@@ -28,7 +28,7 @@ def model_builder(train_config, model_config, **kwargs):
     llm = setup_llm(train_config, model_config, **kwargs)
 
     # 3. projector 
-    projector = setup_projector(train_config, model_config, **kwargs).to(torch.bfloat16)
+    projector = setup_projector(train_config, model_config, **kwargs)
     #encoder_projector = setup_encoder_projector(train_config, model_config, **kwargs) # fp32
 
     # 2. model
@@ -88,13 +88,14 @@ def setup_llm(train_config, model_config, **kwargs):
 
 
 def setup_projector(train_config, model_config, **kwargs):
-    if model_config.projector == "linear":
+    projector_name = model_config.projector
+    if projector_name == "linear":
         from models.projector import LinearProjector
         projector = LinearProjector(model_config)
-    elif model_config.projector == "patched_linear":
+    elif projector_name == "patched_linear":
         from models.projector import PatchedProjector
         projector = PatchedProjector(model_config)
-    print_module_size(projector, "linear-projector")
+    print_module_size(projector, projector_name)
     return projector
 
 
