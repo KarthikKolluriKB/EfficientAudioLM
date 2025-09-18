@@ -56,7 +56,7 @@ def ensure_dir(dir_path: str):
     os.makedirs(dir_path, exist_ok=True)
 
 def save_projector(model, path: str, step: int):
-    torch.save({"step": step, "projector": model.encoder_projector.state_dict()}, path)
+    torch.save({"step": step, "projector": model.projector.state_dict()}, path)
     print(f"Projector saved at step {step} to {path}")
 
 # TODO: Need to implement this function
