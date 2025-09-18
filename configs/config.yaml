@@ -6,12 +6,21 @@ model:
   llm_model_path: null
   llm_type: decoder_only
   llm_dim: 3072
-  projector: mel-linear
-  mel_size: 80
-  mel_time_stride: 8 # 1 = no downsample; try 8–16 to control tokens
-  projector_ds_rate: 4 # if OOM from long prefixes, consider 6-8
-  modal: audio
+
+  # Projector
+  projector: patched_linear
+  mel_size: 80 # mel bins 
   normalize: false
+
+  # Patched projector settings
+  mel_time_stride: 8    # tokens every 8 frames (controls sequence length)
+  projector_ds_rate: 2  # each token sees 8*2=16 frames of context (receptive field)
+
+  # pre-patch normalization and projector dropout
+  mel_input_norm: false  # e.g., log-mel + per-bin mean/var norm if true 
+  mel_dropout: 0.0   # dropout on projected tokens; try 0.0–0.1 if overfitting 
+
+  modal: audio
   encoder_type: finetune
 
 train:
@@ -36,7 +45,7 @@ train:
   val_batch_size: 8                # larger no-grad batches speed up eval
 
   use_peft: false
-  output_dir: outputs_3b_lin_proj_100h/
+  output_dir: outputs_3b_patched_proj_100h/
   freeze_layers: false
   num_freeze_layers: 0
   quantization: false
@@ -82,7 +91,7 @@ log:
   wandb_dir: ./wandb
   wandb_entity_name: ASRLLM
   wandb_project_name: ASRLLM_llama_3B_20h
-  wandb_exp_name: exp_lin_proj
+  wandb_exp_name: exp_patched_proj
   log_dir: ./logs
-  log_filename: train_3b_lin_proj_20h.log
+  log_filename: train_3b_patched_proj_20h.log
   log_interval: 50
