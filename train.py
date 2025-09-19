@@ -1,21 +1,22 @@
 import os 
 import time 
 import argparse 
-
+import warnings
 import torch 
 from torch.utils.data import DataLoader
 from torch.nn.utils import clip_grad_norm_
 from omegaconf import OmegaConf
+from torchtnt.utils.early_stop_checker import EarlyStopChecker
+
 
 # internal imports
-import warnings
 from utils.utils import set_seed, get_device, resolve_pad_token, ensure_dir, save_projector
 from utils.log_config import get_logger
 from utils.wand_config import init_wandb
 from models.model import model_builder
 from datamodule.dataset import get_speech_dataset
-from torchtnt.utils.early_stop_checker import EarlyStopChecker
-#from torch.optim.lr_scheduler import ReduceLROnPlateau
+from utils.train_utils import save_training_config
+
 
 # warnings
 warnings.filterwarnings(
@@ -277,6 +278,10 @@ def main():
     final_path = os.path.join(cfg.train.output_dir, "projector_final.pt")
     save_projector(model, final_path, global_step)
     logger.info(f"Final model checkpointed at: {final_path}")
+
+    # Save training config to output dir
+    cfg_out_path = save_training_config(cfg, cfg.train.output_dir)
+    logger.info(f"Training configuration saved to: {cfg_out_path}")
 
     # End of training     
     logger.info("Training completed.....")
