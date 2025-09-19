@@ -45,7 +45,7 @@ train:
   val_batch_size: 8                # larger no-grad batches speed up eval
 
   use_peft: false
-  output_dir: outputs_3b_patched_proj_100h/
+  output_dir: outputs_3b_patched_12*3_proj_100h/
   freeze_layers: false
   num_freeze_layers: 0
   quantization: false
