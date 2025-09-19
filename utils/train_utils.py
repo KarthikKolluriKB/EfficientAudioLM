@@ -2,7 +2,7 @@ import os
 import json
 from omegaconf import OmegaConf
 import torch
-from log_config import get_logger
+from utils.log_config import get_logger
 
 logger = get_logger(log_dir="logs")
 
