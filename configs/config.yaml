@@ -30,8 +30,6 @@ train:
   grad_clip: 1.0
   num_epochs: 40                   # with early stopping on dev-clean
   num_workers: 8
-  warmup_steps: 300               # ~3% of ~8.9k total steps
-  total_steps: 12000              # ceiling; loop uses epochs
   validation_interval: 1000       # validate each epoch via your loop
   lr: 1.0e-4
   weight_decay: 0.01
