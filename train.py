@@ -177,18 +177,18 @@ def main():
     scaler = torch.amp.GradScaler(enabled=bool(cfg.train.use_fp16))
 
     # LR Scheduler
-    num_training_steps = len(train_dataloader) * cfg.train.num_epochs
-    num_warmup_steps = int(cfg.train.get("warmup_steps", 1000))
-    scheduler_type = cfg.train.get("lr_scheduler", "cosine_warmup")
-    num_cycles = cfg.train.get("num_cycles", 0.5)   
+    # num_training_steps = len(train_dataloader) * cfg.train.num_epochs
+    # num_warmup_steps = int(cfg.train.get("warmup_steps", 1000))
+    # scheduler_type = cfg.train.get("lr_scheduler", "cosine_warmup")
+    # num_cycles = cfg.train.get("num_cycles", 0.5)   
 
-    lr_scheduler = get_lr_scheduler(
-        optimizer=optimizer,
-        scheduler_type=scheduler_type,
-        num_training_steps=num_training_steps,
-        num_warmup_steps=num_warmup_steps,
-        num_cycles=num_cycles
-    )
+    # lr_scheduler = get_lr_scheduler(
+    #     optimizer=optimizer,
+    #     scheduler_type=scheduler_type,
+    #     num_training_steps=num_training_steps,
+    #     num_warmup_steps=num_warmup_steps,
+    #     num_cycles=num_cycles
+    # )
 
     # Training loop
     global_step = 0
@@ -246,14 +246,14 @@ def main():
                 scaler.step(optimizer)
                 scaler.update()
                 # Update LR scheduler
-                lr_scheduler.step()
+                #lr_scheduler.step()
             else:
                 loss.backward()
                 if cfg.train.grad_clip is not None: 
                     clip_grad_norm_(projector_params, cfg.train.grad_clip)
                 optimizer.step()
                 # Update LR scheduler
-                lr_scheduler.step()
+                #lr_scheduler.step()
 
             if global_step % cfg.log.log_interval == 0: 
                 elapsed = time.time() - start_time
