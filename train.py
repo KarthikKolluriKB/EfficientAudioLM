@@ -100,7 +100,7 @@ def main():
         logger.info("Early stopping is enabled")
         early_stop = EarlyStopChecker(
             mode=cfg.train.get("mode", "min"),
-            patience=cfg.train.get("patience", 2),
+            patience=cfg.train.get("patience", 10),
             min_delta=cfg.train.get("min_delta", 0.001)
         )
     else: 
