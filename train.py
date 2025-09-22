@@ -8,14 +8,13 @@ from torch.nn.utils import clip_grad_norm_
 from omegaconf import OmegaConf
 from torchtnt.utils.early_stop_checker import EarlyStopChecker
 
-
 # internal imports
 from utils.utils import set_seed, get_device, resolve_pad_token, ensure_dir, save_projector
 from utils.log_config import get_logger
 from utils.wand_config import init_wandb
 from models.model import model_builder
 from datamodule.dataset import get_speech_dataset
-from utils.train_utils import save_training_config
+from utils.train_utils import save_training_config, get_lr_scheduler
 
 
 # warnings
@@ -68,14 +67,6 @@ def evaluate(cfg, model, dataloader, device):
     return val_loss, val_acc
 
 
-# Early Stopping 
-early_stop = EarlyStopChecker(
-    mode="min",
-    patience=2,
-    min_delta=0.001, 
-    threshold_mode="abs"
-)
-
 def main(): 
     """
     Main training loop for training the projector module.
@@ -103,6 +94,18 @@ def main():
     logger.info(f"Set random seed to {cfg.train.seed}")
     device = get_device() 
     logger.info(f"Device: {device}")
+
+    # Early stopping
+    if cfg.train.es_enabled:
+        logger.info("Early stopping is enabled")
+        early_stop = EarlyStopChecker(
+            mode=cfg.train.get("mode", "min"),
+            patience=cfg.train.get("patience", 2),
+            min_delta=cfg.train.get("min_delta", 0.001)
+        )
+    else: 
+        logger.info("Early stopping is disabled")
+
 
     # Model (ASR + LLM)
     model, tokenizer = model_builder(cfg.train, cfg.model)
@@ -133,7 +136,6 @@ def main():
         shuffle=True,
         collate_fn=train_ds.collator,
         num_workers=cfg.train.num_workers,
-        # FIXME: check if device is cuda or cuda:0 
         pin_memory=(device == "cuda"),
         persistent_workers=True if cfg.train.num_workers > 0 else False
     )
@@ -173,6 +175,20 @@ def main():
 
     # Grad Scaler for mixed precision
     scaler = torch.amp.GradScaler(enabled=bool(cfg.train.use_fp16))
+
+    # LR Scheduler
+    num_training_steps = len(train_dataloader) * cfg.train.num_epochs
+    num_warmup_steps = int(cfg.train.get("warmup_steps", 1000))
+    scheduler_type = cfg.train.get("lr_scheduler", "cosine_warmup")
+    num_cycles = cfg.train.get("num_cycles", 0.5)   
+
+    lr_scheduler = get_lr_scheduler(
+        optimizer=optimizer,
+        scheduler_type=scheduler_type,
+        num_training_steps=num_training_steps,
+        num_warmup_steps=num_warmup_steps,
+        num_cycles=num_cycles
+    )
 
     # Training loop
     global_step = 0
@@ -229,11 +245,15 @@ def main():
                     clip_grad_norm_(projector_params, cfg.train.grad_clip)
                 scaler.step(optimizer)
                 scaler.update()
+                # Update LR scheduler
+                lr_scheduler.step()
             else:
                 loss.backward()
                 if cfg.train.grad_clip is not None: 
                     clip_grad_norm_(projector_params, cfg.train.grad_clip)
                 optimizer.step()
+                # Update LR scheduler
+                lr_scheduler.step()
 
             if global_step % cfg.log.log_interval == 0: 
                 elapsed = time.time() - start_time
