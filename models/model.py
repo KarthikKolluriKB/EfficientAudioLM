@@ -43,7 +43,6 @@ def model_builder(train_config, model_config, **kwargs):
 
     # load ckpt 
     ckpt_path = kwargs.get("ckpt_path", None) 
-    # TODO: check models is loading correctly
     if ckpt_path is not None:
         logger.info(f"Load checkpoint from {ckpt_path}")
         ckpt_dir = torch.load(ckpt_path, map_location="cpu")
