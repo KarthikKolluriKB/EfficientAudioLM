@@ -9,6 +9,7 @@ dependencies = [
     "datasets>=4.0.0",
     "hf-xet>=1.1.9",
     "huggingface-hub[cli]>=0.34.4",
+    "jiwer>=4.0.0",
     "omegaconf>=2.3.0",
     "openai-whisper>=20250625",
     "peft>=0.17.1",
