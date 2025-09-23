@@ -15,6 +15,7 @@ from utils.wand_config import init_wandb
 from models.model import model_builder
 from datamodule.dataset import get_speech_dataset
 from utils.train_utils import save_training_config, get_lr_scheduler
+from utils.metrics import decode_texts_from_outputs, compute_wer
 
 
 # warnings
@@ -29,6 +30,7 @@ def evaluate(cfg, model, dataloader, device):
     model.eval()
     total_loss, n_batches = 0.0, 0
     num_correct, num_total = 0, 0
+    all_hyp_texts, all_ref_texts = [], []
 
     use_autocast = bool(cfg.train.mixed_precision and getattr(device, "type", str(device)) == "cuda")
     amp_dtype = torch.bfloat16 if (torch.cuda.is_available() and torch.cuda.is_bf16_supported()) else torch.float16
@@ -39,6 +41,7 @@ def evaluate(cfg, model, dataloader, device):
             attention_mask = batch["attention_mask"].to(device)
             labels = batch["labels"].to(device)
             audio_mel = batch["audio_mel"].to(device)
+            
             if use_autocast:
                 with torch.autocast(device_type=device, dtype=amp_dtype, enabled=use_autocast):
                     outputs, metrics = model(
@@ -54,17 +57,36 @@ def evaluate(cfg, model, dataloader, device):
                     labels=labels,
                     audio_mel=audio_mel,
                 )
+            
             total_loss += outputs.loss.item()
             n_batches += 1
             if metrics is not None:
                 num_correct += metrics.get("num_correct", 0)
                 num_total  += metrics.get("num_total", 0)
+            
+            # Decode texts per-batch hyp and ref texts for WER
+            hyp_texts, ref_texts = decode_texts_from_outputs(
+                outputs=outputs,
+                labels=labels,
+                tokenizer=model.tokenizer,
+                ignore_index=-100,
+                shift_causal=True,
+                skip_special_tokens=True,
+                clean_up_tokenization_spaces=True
+            )
+            # Accumulate all texts
+            all_hyp_texts.extend(hyp_texts)
+            all_ref_texts.extend(ref_texts)
 
     val_loss = total_loss / max(n_batches, 1)
     val_acc = num_correct / max(num_total, 1) if num_total > 0 else 0.0
 
+    # Compute WER over the entire validation set
+    # TODO: preset for each dataset
+    val_wer = compute_wer(all_hyp_texts, all_ref_texts)
+
     model.train()
-    return val_loss, val_acc
+    return val_loss, val_acc, val_wer
 
 
 def main(): 
@@ -100,8 +122,9 @@ def main():
         logger.info("Early stopping is enabled")
         early_stop = EarlyStopChecker(
             mode=cfg.train.get("mode", "min"),
-            patience=cfg.train.get("patience", 10),
-            min_delta=cfg.train.get("min_delta", 0.001)
+            patience=cfg.train.get("patience", 5),
+            min_delta=cfg.train.get("wer_min_delta", 0.002),
+            threshold_mode="abs"
         )
     else: 
         logger.info("Early stopping is disabled")
@@ -177,22 +200,22 @@ def main():
     scaler = torch.amp.GradScaler(enabled=bool(cfg.train.use_fp16))
 
     # LR Scheduler
-    # num_training_steps = len(train_dataloader) * cfg.train.num_epochs
-    # num_warmup_steps = int(cfg.train.get("warmup_steps", 1000))
-    # scheduler_type = cfg.train.get("lr_scheduler", "cosine_warmup")
-    # num_cycles = cfg.train.get("num_cycles", 0.5)   
+    num_training_steps = len(train_dataloader) * cfg.train.num_epochs
+    num_warmup_steps = int(cfg.train.get("warmup_steps", 1000))
+    scheduler_type = cfg.train.get("lr_scheduler", "cosine_warmup")
+    num_cycles = cfg.train.get("num_cycles", 0.5)   
 
-    # lr_scheduler = get_lr_scheduler(
-    #     optimizer=optimizer,
-    #     scheduler_type=scheduler_type,
-    #     num_training_steps=num_training_steps,
-    #     num_warmup_steps=num_warmup_steps,
-    #     num_cycles=num_cycles
-    # )
+    lr_scheduler = get_lr_scheduler(
+        optimizer=optimizer,
+        scheduler_type=scheduler_type,
+        num_training_steps=num_training_steps,
+        num_warmup_steps=num_warmup_steps,
+        num_cycles=num_cycles
+    )
 
     # Training loop
     global_step = 0
-    best_val_loss = float("inf")
+    best_val_wer = float("inf")
     start_time = time.time()
     model.train()
 
@@ -237,6 +260,19 @@ def main():
             if metrics is not None and "acc" in metrics:
                 acc = float(metrics["acc"])
 
+            # Computing WER per-batch 
+            hyp_texts, ref_texts = decode_texts_from_outputs(
+                outputs=outputs,
+                labels=labels,
+                tokenizer=tokenizer,
+                ignore_index=-100,
+                shift_causal=True,
+                skip_special_tokens=True,
+                clean_up_tokenization_spaces=True
+            )
+
+            batch_wer = compute_wer(hyp_texts, ref_texts)
+
             # Backward pass and optimization step
             if scaler.is_enabled(): 
                 scaler.scale(loss).backward()
@@ -246,14 +282,14 @@ def main():
                 scaler.step(optimizer)
                 scaler.update()
                 # Update LR scheduler
-                #lr_scheduler.step()
+                lr_scheduler.step()
             else:
                 loss.backward()
                 if cfg.train.grad_clip is not None: 
                     clip_grad_norm_(projector_params, cfg.train.grad_clip)
                 optimizer.step()
                 # Update LR scheduler
-                #lr_scheduler.step()
+                lr_scheduler.step()
 
             if global_step % cfg.log.log_interval == 0: 
                 elapsed = time.time() - start_time
@@ -261,6 +297,7 @@ def main():
                 logger.info(f"Epoch={epoch} Step={global_step} Loss={loss.item():.4f} Acc={float(acc):.4f} LR={lr:.6e} Time={elapsed:.2f}s")
                 if run is not None: 
                     run.log({
+                        "train/wer": batch_wer,
                         "train/loss": loss.item(),
                         "train/acc": acc,
                         "train/lr": lr,
@@ -273,24 +310,25 @@ def main():
 
 
         # Validation at the end of each epoch
-        val_loss, val_acc = evaluate(cfg, model, val_dataloader, device)
-        logger.info(f"Epoch {epoch} Validation Loss: {val_loss:.4f}, Validation Acc: {val_acc:.4f}")
+        val_loss, val_acc, val_wer = evaluate(cfg, model, val_dataloader, device)
+        logger.info(f"Epoch {epoch} Validation WER: {val_wer:.4f}, Validation Loss: {val_loss:.4f}, Validation Acc: {val_acc:.4f}")
         if run is not None: 
             run.log({
+                "val/wer": val_wer,
                 "val/loss": val_loss,
                 "val/acc": val_acc,
                 "val/epoch": epoch
             }, step=global_step)
-
+        
         # Save best model
-        if val_loss < best_val_loss:
-            best_val_loss = val_loss
-            best_val_path = os.path.join(cfg.train.output_dir, "projector_best.pt")
+        if val_wer < best_val_wer - 1e-6:  # small tolerance to avoid saving too often
+            best_val_wer = val_wer
+            best_val_path = os.path.join(cfg.train.output_dir, "projector_best_wer.pt")
             save_projector(model, best_val_path, global_step)
-            logger.info(f"New best model saved at step {global_step} to {best_val_path} with val_loss {best_val_loss:.4f}")
+            logger.info(f"New best model saved at step {global_step} to {best_val_path} with val_wer {best_val_wer:.4f}")
 
         # early stopping 
-        if cfg.train.es_enabled and early_stop.step(val_loss):
+        if cfg.train.es_enabled and early_stop.step(val_wer):
             logger.info(f"Early stopping at epoch: {epoch} (patience={early_stop.patience})")
             break
 
@@ -306,7 +344,7 @@ def main():
     # End of training     
     logger.info("Training completed.....")
     logger.info("Training Time: {:.2f} minutes".format((time.time() - start_time) / 60))
-    logger.info(f"Best validation loss: {best_val_loss:.4f}")
+    logger.info(f"Best validation WER: {best_val_wer:.4f}")
     logger.info(f"Final projector model saved to: {best_val_path}")
 
     if run is not None: 
