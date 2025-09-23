@@ -294,7 +294,7 @@ def main():
             if global_step % cfg.log.log_interval == 0: 
                 elapsed = time.time() - start_time
                 lr = optimizer.param_groups[0]["lr"]
-                logger.info(f"Epoch={epoch} Step={global_step} Loss={loss.item():.4f} Acc={float(acc):.4f} LR={lr:.6e} Time={elapsed:.2f}s")
+                logger.info(f"Epoch={epoch} Step={global_step} WER={batch_wer:.4f} Loss={loss.item():.4f} Acc={float(acc):.4f} LR={lr:.6e} Time={elapsed:.2f}s")
                 if run is not None: 
                     run.log({
                         "train/wer": batch_wer,
