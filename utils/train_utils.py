@@ -92,7 +92,7 @@ def get_lr_scheduler(
             num_warmup_steps=num_warmup_steps,
             num_training_steps=num_training_steps
         )
-    elif scheduler_type == "cosine":
+    elif scheduler_type == "cosine_warmup":
         return get_cosine_schedule_with_warmup(
             optimizer,
             num_warmup_steps=num_warmup_steps,
