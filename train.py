@@ -290,7 +290,7 @@ def main():
             logger.info(f"New best model saved at step {global_step} to {best_val_path} with val_loss {best_val_loss:.4f}")
 
         # early stopping 
-        if early_stop.check(val_loss):
+        if cfg.train.es_enabled and early_stop.step(val_loss):
             logger.info(f"Early stopping at epoch: {epoch} (patience={early_stop.patience})")
             break
 
