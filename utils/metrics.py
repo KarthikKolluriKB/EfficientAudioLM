@@ -96,9 +96,9 @@ def decode_texts_from_outputs(
     shift_causal: bool = True,
     skip_special_tokens: bool = True,
     clean_up_tokenization_spaces: bool = None,
-) -> Tuple[List[str], List[str]]: 
+) -> Tuple[List[str], List[str]]:
     """
-    Decode text from model outputs and labels using the provided tokenizer.
+    Decode texts from model outputs and labels using the provided tokenizer.
 
     Args:
         outputs: model outputs (logits or token ids).
@@ -113,37 +113,37 @@ def decode_texts_from_outputs(
         hyp_texts (List[str]): list of decoded hypothesis texts.
         ref_texts (List[str]): list of decoded reference texts.
     """
-    # logits: [B, T, V] B- batch size, T- seq len, V- vocab size
-    logist = outputs.logits if hasattr(outputs, "logits") else outputs
-
+    # Extract token predictions
+    logits = outputs.logits if hasattr(outputs, "logits") else outputs
     with torch.no_grad():
-        pred_ids = logist.argmax(dim=-1)  # [B, T] batch of token ids
+        pred_ids = logits.argmax(dim=-1)  # [B, T] batch of token ids
 
-    # Align t predictions with t+1 labels for causal LM if requested
+    # Apply causal shift if required
     if shift_causal:
         pred_ids = pred_ids[:, :-1]      # [B, T-1]
-        ref_ids = labels[:, 1:]           # [B, T-1]
+        ref_ids = labels[:, 1:]          # [B, T-1]
     else:
-        ref_ids = labels  # [B, T]
-
-    # Mask valid reference positions (ignore -100)
-    mask = ref_ids.ne(ignore_index)  # [B, T] or [B, T-1]
-
+        ref_ids = labels                 # [B, T]
+    
     hyp_texts, ref_texts = [], []
-    B = pred_ids.size(0) # batch size
-    for b in range(B): 
-        m = mask[b]
-        if m.sum().item() == 0: 
-            continue  # skip empty references
-        hyp_token = pred_ids[b][m] # [T_valid]
-        ref_token = ref_ids[b][m]   # [T_valid]
-        # Decode hypothesis text (tokens to text)
+    B = pred_ids.size(0)
+    for b in range(B):
+        # Find the min length to slice both tensors (prevents mismatches)
+        seq_len = min(pred_ids[b].shape[0], ref_ids[b].shape[0])
+        pred_seq = pred_ids[b][:seq_len]
+        ref_seq = ref_ids[b][:seq_len]
+        mask = ref_seq.ne(ignore_index)  # Only valid label positions
+        
+        if mask.sum().item() == 0:
+            continue  # skip empty
+        hyp_token = pred_seq[mask]
+        ref_token = ref_seq[mask]
+
         hyp_text = tokenizer.decode(
-            hyp_token, 
+            hyp_token,
             skip_special_tokens=skip_special_tokens,
             clean_up_tokenization_spaces=clean_up_tokenization_spaces
         )
-        # Decode reference text
         ref_text = tokenizer.decode(
             ref_token,
             skip_special_tokens=skip_special_tokens,
