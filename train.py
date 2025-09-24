@@ -328,7 +328,7 @@ def main():
             logger.info(f"New best model saved at step {global_step} to {best_val_path} with val_wer {best_val_wer:.4f}")
 
         # early stopping 
-        if cfg.train.es_enabled and early_stop.step(val_wer):
+        if cfg.train.es_enabled and early_stop.check(val_wer):
             logger.info(f"Early stopping at epoch: {epoch} (patience={early_stop.patience})")
             break
 
