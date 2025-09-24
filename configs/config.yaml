@@ -57,7 +57,7 @@ train:
   num_cycles: 0.5  # only for cosine scheduler
 
   # Early stopping settings
-  es_enabled: true
+  es_enabled: false
   mode: min
   patience: 5
   min_delta: 0.001

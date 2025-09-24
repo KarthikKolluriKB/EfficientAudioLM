@@ -7,6 +7,7 @@ from transformers import (
     get_linear_schedule_with_warmup,
     get_cosine_schedule_with_warmup
 )
+from omegaconf import DictConfig, OmegaConf, ListConfig
 
 # internal imports
 from utils.log_config import get_logger
@@ -40,6 +41,12 @@ def print_module_size(module, module_name: str) -> None:
     total_params = sum(p.numel() for p in module.parameters() if p.requires_grad)
     logger.info(f"{module_name} has {total_params/ 1e6} Million trainable parameters")
 
+def convert_to_dict(cfg): 
+    if OmegaConf.is_config(cfg): # DictConfig or ListConfig
+        # Convert to plain dict or list
+        return OmegaConf.to_container(cfg, resolve=True)
+    return cfg # already a plain dict or list
+
 def save_training_config(cfg, output_dir):
     """
     Saves the training configuration to a JSON file in the specified output directory.
@@ -51,17 +58,21 @@ def save_training_config(cfg, output_dir):
     Returns:
         str: The path to the saved configuration file.
     """
-    config_to_save = {
-        "model": OmegaConf.to_container(cfg.get("model", {}), resolve=True),
-        "train": OmegaConf.to_container(cfg.get("train", {}), resolve=True),
-        "data": OmegaConf.to_container(cfg.get("data", {}), resolve=True),
-        "scheduler": OmegaConf.to_container(cfg.get("scheduler", {}), resolve=True),
-        "early_stopping": OmegaConf.to_container(cfg.get("early_stopping", {}), resolve=True),
+    # mkdir if not exists
+    os.makedirs(output_dir, exist_ok=True)
+    payload = {
+        "train_config": convert_to_dict(cfg.get("train")),
+        "model_config": convert_to_dict(cfg.get("model")),
+        "data_config":  convert_to_dict(cfg.get("data")),
+        "log_config":   convert_to_dict(cfg.get("log")),
+        "scheduler_config": convert_to_dict(cfg.get("scheduler", {})),
     }
-    cfg_out_path = os.path.join(output_dir, "training_config.json")
-    with open(cfg_out_path, "w") as f:
-        json.dump(config_to_save, f, indent=2)
-    return cfg_out_path
+
+    path = os.path.join(output_dir, "training_config.json")
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(payload, f, ensure_ascii=False, indent=2)
+    logger.info(f"Training configuration saved to {path}")
+    return path
 
 
 def get_lr_scheduler(
