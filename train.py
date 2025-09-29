@@ -14,7 +14,7 @@ from utils.log_config import get_logger
 from utils.wand_config import init_wandb
 from models.model import model_builder
 from datamodule.dataset import get_speech_dataset
-from utils.train_utils import save_training_config, get_lr_scheduler
+from utils.train_utils import save_and_print_examples, save_training_config, get_lr_scheduler
 from utils.metrics import decode_texts_from_outputs, compute_wer
 
 
@@ -85,8 +85,11 @@ def evaluate(cfg, model, dataloader, device):
     # TODO: preset for each dataset
     val_wer = compute_wer(all_hyp_texts, all_ref_texts)
 
+    # val word accuracy
+    val_word_acc = 1.0 - val_wer
+
     model.train()
-    return val_loss, val_acc, val_wer
+    return val_loss, val_acc, val_wer, val_word_acc, all_hyp_texts, all_ref_texts
 
 
 def main(): 
@@ -273,6 +276,9 @@ def main():
 
             batch_wer = compute_wer(hyp_texts, ref_texts)
 
+            # Word Accuracy = 1 - WER
+            word_acc = 1.0 - batch_wer
+
             # Backward pass and optimization step
             if scaler.is_enabled(): 
                 scaler.scale(loss).backward()
@@ -298,6 +304,7 @@ def main():
                 if run is not None: 
                     run.log({
                         "train/wer": batch_wer,
+                        "train/word_acc": word_acc,
                         "train/loss": loss.item(),
                         "train/acc": acc,
                         "train/lr": lr,
@@ -310,8 +317,8 @@ def main():
 
 
         # Validation at the end of each epoch
-        val_loss, val_acc, val_wer = evaluate(cfg, model, val_dataloader, device)
-        logger.info(f"Epoch {epoch} Validation WER: {val_wer:.4f}, Validation Loss: {val_loss:.4f}, Validation Acc: {val_acc:.4f}")
+        val_loss, val_acc, val_wer, val_word_acc, all_hyp_texts, all_ref_texts = evaluate(cfg, model, val_dataloader, device)
+        logger.info(f"Epoch {epoch} Validation WER: {val_wer:.4f}, Validation Loss: {val_loss:.4f}, Validation Acc: {val_acc:.4f}, Validation Word Acc: {val_word_acc:.4f}  ")
         if run is not None: 
             run.log({
                 "val/wer": val_wer,
@@ -319,6 +326,18 @@ def main():
                 "val/acc": val_acc,
                 "val/epoch": epoch
             }, step=global_step)
+
+        # Save hypothesis and reference texts for analysis
+        save_and_print_examples(
+            hyp_texts=all_hyp_texts,
+            ref_texts=all_ref_texts,
+            output_path=cfg.train.output_dir,
+            epoch=epoch,
+            n_save=10,
+            n_print=5,
+            run=run,
+            seed=cfg.train.seed
+        )
         
         # Save best model
         if val_wer < best_val_wer - 1e-6:  # small tolerance to avoid saving too often
