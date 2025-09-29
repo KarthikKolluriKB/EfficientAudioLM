@@ -41,7 +41,7 @@ train:
 
   # Training options
   use_peft: false
-  output_dir: outputs_3b_lin_proj_20h_25eps_lrsch_ds1/
+  output_dir: outputs_3b_lin_proj_20h_25eps_lrsch_ds1_norm_meldrop0.1/
   freeze_layers: false
   num_freeze_layers: 0
   quantization: false
@@ -87,7 +87,7 @@ log:
   wandb_dir: ./wandb
   wandb_entity_name: ASRLLM
   wandb_project_name: ASRLLM_llama_3B_20h
-  wandb_exp_name: exp_lin_proj_20h_25eps_lrsch_ds1
+  wandb_exp_name: exp_lin_proj_20h_25eps_lrsch_ds1_norm_meldrop0.1
   log_dir: ./logs
-  log_filename: train_3b_lin_proj_20h_25eps_lrsch_ds1.log
+  log_filename: train_3b_lin_proj_20h_25eps_lrsch_ds1_norm_meldrop0.1.log
   log_interval: 100
