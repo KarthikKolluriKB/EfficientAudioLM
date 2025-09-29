@@ -131,7 +131,7 @@ def save_and_print_examples(
     Args:
         hyp_texts: List of hypothesis (predicted) texts
         ref_texts: List of reference (ground truth) texts
-        output_dir: Directory to save the JSONL file
+        output_path: Directory to save the JSONL file
         epoch: Current epoch number
         n_save: Number of examples to save to file (default: 10)
         n_print: Number of examples to print to console (default: 3)
@@ -164,7 +164,7 @@ def save_and_print_examples(
         examples.append(example)
 
     # Save to JSONL file
-    os.makedirs(os.path.dirname(output_path), exist_ok=True)
+    os.makedirs(output_path, exist_ok=True)
     jsonl_path = os.path.join(output_path, f"epoch_{epoch:03d}_examples.jsonl")
 
     with open(jsonl_path, "w", encoding="utf-8") as f:
@@ -181,7 +181,8 @@ def save_and_print_examples(
     print(f"Epoch {epoch} - ASR Examples (showing {n_to_print} of {n_to_sample} saved):")
     print(f"{'='*80}")
     
-    for i, example in enumerate(print_indices, 1):
+    for i, idx in enumerate(print_indices, 1):
+        example = examples[idx]
         print(f"\n[{i}] Sample #{example['sample_index']}:")
         print(f"  REF: {example['ref']}")
         print(f"  HYP: {example['hyp']}")
@@ -198,8 +199,8 @@ def save_and_print_examples(
                     example["hyp"], 
                     example["ref"]
                 )
-                run.log({f"examples/epoch_{epoch:03d}": table}, commit=False) # avoid creating extra step
-                logger.info(f"[Epoch {epoch}] Logged examples to wandb")
+            run.log({f"examples/epoch_{epoch:03d}": table}, commit=False) # avoid creating extra step
+            logger.info(f"[Epoch {epoch}] Logged examples to wandb")
         except ImportError:
             logger.warning("wandb is not installed. Skipping wandb logging.")
         except Exception as e:
