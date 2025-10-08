@@ -1,7 +1,9 @@
+import json
 import os 
-import random 
+import random
+from types import SimpleNamespace 
 import torch 
-from typing import Optional
+from typing import Any, Dict, Optional
 
 def set_seed(seed: int):
     """Set the random seed for reproducibility."""
@@ -62,3 +64,27 @@ def save_projector(model, path: str, step: int):
 # TODO: Need to implement this function
 def load_projector(model, path: str) -> Optional[int]:
     pass
+
+def dict_to_ns(d: Dict[str, Any]) -> SimpleNamespace: 
+    """Convert a dictionary to a SimpleNamespace, recursively converting nested dictionaries."""
+    out = {} 
+    for k, v in d.items():
+        out[k] = dict_to_ns(v) if isinstance(v, dict) else v
+    return SimpleNamespace(**out)
+
+def import_from_path(spec_str: str): 
+    """Import a module or object from a file path."""
+    file, name = spec_str.split(":")
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("dynmod", file)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return getattr(module, name)
+
+def load_jsonl(path: str): 
+    """Load a JSONL file and return a list of dictionaries."""
+    data = [] 
+    with open(path, "r", encoding="utf-8") as f: 
+        for line in f: 
+            data.append(json.loads(line))
+    return data
