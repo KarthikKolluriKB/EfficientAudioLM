@@ -57,10 +57,10 @@ train:
 
   # Early stopping settings
   es_enabled: false
-  mode: min
-  patience: 5
-  min_delta: 0.001
-  wer_min_delta: 0.002
+  es_mode: min
+  es_patience: 5
+  es_min_delta: 0.001
+  es_wer_min_delta: 0.002
 
  # Scheduler settings
   lr_scheduler: cosine_warmup
