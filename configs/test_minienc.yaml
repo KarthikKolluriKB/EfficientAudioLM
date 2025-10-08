@@ -60,12 +60,12 @@ scheduler:
   total_training_steps: 65010
   warmup_steps: 1950
 
-# Early Stopping
-early_stopping: 
-  monitor: val/loss
-  mode: min 
-  patience: 2 
+# Early stopping settings
+  es_enabled: false
+  mode: min
+  patience: 5
   min_delta: 0.001
+  wer_min_delta: 0.002
 
 data:
   dataset: speech_dataset
