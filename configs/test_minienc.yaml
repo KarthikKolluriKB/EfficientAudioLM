@@ -55,17 +55,19 @@ train:
   use_fast_kernels: false
   freeze_llm: true                 # projector/encoder-only check, unfreeze later
 
-scheduler: 
-  name: cosine_with_warmup
-  total_training_steps: 65010
-  warmup_steps: 1950
-
-# Early stopping settings
+  # Early stopping settings
   es_enabled: false
   mode: min
   patience: 5
   min_delta: 0.001
   wer_min_delta: 0.002
+
+ # Scheduler settings
+  lr_scheduler: cosine_warmup
+  total_training_steps: 65010
+  warmup_steps: 1950
+  num_cycles: 0.5
+
 
 data:
   dataset: speech_dataset
