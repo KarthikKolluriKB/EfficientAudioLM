@@ -6,7 +6,8 @@ import torch.nn.functional as F
 
 class LinearProjector(nn.Module):
     """
-    Direct Mel -> token projector for encoder-free ASR.
+    Linear Projector:
+    Projects Mel spectrograms directly to LLM token embeddings.
 
     Expects Mel from the dataloader as [B, T, 80] (time-major with 80 bins),
     but also accepts [B, 80, T] and will transpose automatically.
@@ -90,8 +91,24 @@ class LinearProjector(nn.Module):
         return x
     
 
-class PatchedProjector(nn.Module):
+class LinearPatchProjector(nn.Module):
     """
+    Linear Patch Projector: Projects Mel spectrograms patch-wise to LLM token embeddings.
+
+    Expects Mel from the dataloader as [B, T, 80] (time-major with 80 bins),
+    but also accepts [B, 80, T] and will transpose automatically.
+    Extracts overlapping patches along time, flattens each patch, and applies
+
+    Args: 
+        - mel_size: int, number of Mel bins (default 80)
+        - llm_dim: int, LLM embedding dimension (e.g., 3072)
+        - mel_time_stride: int, token rate control (token every `mel_time_stride` frames)
+        - projector_ds_rate: int, receptive field control (each token sees `mel_time_stride * projector_ds_rate` frames)
+        - mel_input_norm: bool, apply per-bin normalization over time before patching
+        - mel_dropout: float, dropout after Linear (default 0.0)
+
+    Returns: 
+        - tokens: [B, N, llm_dim] where N is the number of patches along time
     """
     def __init__(self, model_config):
         super().__init__()
@@ -134,7 +151,6 @@ class PatchedProjector(nn.Module):
         if T < self.patch_size:
             T = self.patch_size
         return (T - self.patch_size) // self.stride + 1
-
 
     def forward(self, mel: torch.Tensor) -> torch.Tensor:
         """
