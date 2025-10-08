@@ -229,6 +229,12 @@ def main():
     logger.info(f"Total Epochs: {cfg.train.num_epochs}")
     logger.info(f"Batch Size: {cfg.train.batch_size}")
     logger.info(f"Learning Rate: {cfg.train.lr}")
+    logger.info(f"Early Stopping: {'Enabled' if cfg.train.es_enabled else 'Disabled'}")
+    if cfg.train.es_enabled:
+        logger.info(f"  - Mode: {cfg.train.es_mode}")
+        logger.info(f"  - Patience: {cfg.train.es_patience}")
+        logger.info(f"  - Min Delta: {cfg.train.es_min_delta}")
+        logger.info(f"  - WER Min Delta: {cfg.train.es_wer_min_delta}")
     logger.info(f"Scheduler Type: {scheduler_type}")
     logger.info(f"Warmup Steps: {num_warmup_steps}")
     logger.info(f"Total Training Steps: {num_training_steps}")
