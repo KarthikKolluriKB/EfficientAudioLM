@@ -105,11 +105,22 @@ def setup_projector(train_config, model_config, **kwargs):
     print_module_size(projector, projector_name)
     return projector
 
+# TODO: remove later
+def setup_encoder():
+    from models.encoder import WhisperEncoder
+    encoder = WhisperEncoder(
+        whisper_model_name="base",
+        freeze_encoder=True,
+    )
+    print_module_size(encoder, "whisper_base")
+    return encoder
+
 
 class ASRLLM(nn.Module):
     
     def __init__(self,
                  llm: nn.Module,
+                 encoder: Optional[nn.Module], ##TODO: remove later
                  projector: Optional[nn.Module],
                  tokenizer,
                  train_config,
@@ -120,6 +131,9 @@ class ASRLLM(nn.Module):
 
         # llm 
         self.llm = llm
+
+        # encoder
+        self.encoder = encoder # TODO: remove later
 
         # projector
         self.projector = projector
@@ -171,6 +185,10 @@ class ASRLLM(nn.Module):
         audio_mel = kwargs.get("audio_mel", None)
         if audio_mel is None: 
             raise ValueError("audio_mel is required for direct spectorgram pipeline")
+
+        # encoder 
+        if self.encoder is not None:
+            audio_mel = self.encoder(audio_mel)  # [B, T', D_enc]
 
         # 1) Projector Mel -> LLM token embeddings
         enc_tok = self.projector(audio_mel)  # [B, T_a, D_llm]
