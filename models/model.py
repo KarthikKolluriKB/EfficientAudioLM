@@ -94,6 +94,14 @@ def setup_projector(train_config, model_config, **kwargs):
     elif projector_name == "patched_linear":
         from models.projector import PatchedProjector
         projector = PatchedProjector(model_config)
+    elif projector_name == "mini_audio_encoder":
+        from models.test_projector import MiniAudioEncoderProjector
+        projector = MiniAudioEncoderProjector(
+            projector=model_config.get("projector_type", "linear"),
+            mel_bins=model_config.get("mel_size", 80),
+            llm_dim=model_config.get("llm_dim", 3072),
+            stride=model_config.get("mel_time_stride", 8)
+        )
     print_module_size(projector, projector_name)
     return projector
 
