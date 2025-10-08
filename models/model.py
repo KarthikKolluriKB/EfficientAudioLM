@@ -190,13 +190,18 @@ class ASRLLM(nn.Module):
         audio_mel = kwargs.get("audio_mel", None)
         if audio_mel is None: 
             raise ValueError("audio_mel is required for direct spectorgram pipeline")
+    ### Encoder code block - TODO: remove later
+        self.encoder.eval() # TODO: remove later
 
-        # encoder 
-        if self.encoder is not None:
-            audio_mel = self.encoder(audio_mel)  # [B, T', D_enc]
-
-        # 1) Projector Mel -> LLM token embeddings
-        enc_tok = self.projector(audio_mel)  # [B, T_a, D_llm]
+        # 1. Whisper encode audio -> [B, n_mels, T] -> permute -> [B, T, n_mels] for var-length 
+        with torch.no_grad():
+            encoder_outputs = self.encoder(audio_mel.permute(0, 2, 1)).last_hidden_state # [B, T_enc, D]
+    
+        enc_tok = self.projector(encoder_outputs)  # [B, T_a, D_llm]
+   ### End of encoder code block
+    ### Original code block    
+        # # 1) Projector Mel -> LLM token embeddings
+        # enc_tok = self.projector(audio_mel)  # [B, T_a, D_llm]
 
         # 2) Embed prompt tokens
         token_embeds = None 
