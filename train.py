@@ -216,6 +216,28 @@ def main():
         num_cycles=num_cycles
     )
 
+    # Print training configuration summary
+    logger.info("=" * 80)
+    logger.info("TRAINING CONFIGURATION SUMMARY")
+    logger.info("=" * 80)
+    logger.info(f"LLM Model Name: {cfg.model.llm_model_name}")
+    logger.info(f"LLM Model Path: {cfg.model.llm_model}")
+    logger.info(f"Projector Type: {cfg.model.projector}")
+    logger.info(f"Dataset: {cfg.data.get('dataset', 'speech_dataset')}")
+    logger.info(f"Train Data Path: {cfg.data.get('train_data_path', 'N/A')}")
+    logger.info(f"Val Data Path: {cfg.data.get('val_data_path', 'N/A')}")
+    logger.info(f"Total Epochs: {cfg.train.num_epochs}")
+    logger.info(f"Batch Size: {cfg.train.batch_size}")
+    logger.info(f"Learning Rate: {cfg.train.lr}")
+    logger.info(f"Scheduler Type: {scheduler_type}")
+    logger.info(f"Warmup Steps: {num_warmup_steps}")
+    logger.info(f"Total Training Steps: {num_training_steps}")
+    if scheduler_type == "cosine_warmup":
+        logger.info(f"Num Cycles: {num_cycles}")
+    logger.info(f"Mixed Precision: {cfg.train.mixed_precision}")
+    logger.info(f"Device: {device}")
+    logger.info("=" * 80)
+
     # Training loop
     global_step = 0
     best_val_wer = float("inf")
