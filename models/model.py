@@ -31,9 +31,14 @@ def model_builder(train_config, model_config, **kwargs):
     projector = setup_projector(train_config, model_config, **kwargs)
     #encoder_projector = setup_encoder_projector(train_config, model_config, **kwargs) # fp32
 
+    # TODO: remove later
+    # 4. encoder (optional, for spectrogram input) 
+    encoder = setup_encoder() 
+
     # 2. model
     model = ASRLLM(
         llm,
+        encoder, # TODO: remove later
         projector,
         tokenizer,
         train_config,
