@@ -13,6 +13,7 @@ from peft import LoraConfig, TaskType, get_peft_model, prepare_model_for_kbit_tr
 from peft import PeftModel, PeftConfig
 
 
+from models.encoder import WhisperWrappedEncoder
 from utils.metrics import compute_accuracy
 from utils.train_utils import print_model_size, print_module_size
 
@@ -99,25 +100,23 @@ def setup_projector(train_config, model_config, **kwargs):
     elif projector_name == "patched_linear":
         from models.projector import PatchedProjector
         projector = PatchedProjector(model_config)
-    elif projector_name == "mini_audio_encoder":
-        from models.test_projector import MiniAudioEncoderProjector
-        projector = MiniAudioEncoderProjector(
-            projector=model_config.get("projector_type", "linear"),
-            mel_bins=model_config.get("mel_size", 80),
-            llm_dim=model_config.get("llm_dim", 3072),
-            stride=model_config.get("mel_time_stride", 8)
-        )
     print_module_size(projector, projector_name)
     return projector
 
 # TODO: remove later
 def setup_encoder():
-    from models.encoder import WhisperEncoder
-    encoder = WhisperEncoder(
-        whisper_model_name="base",
-        freeze_encoder=True,
-    )
-    print_module_size(encoder, "whisper_base")
+    
+    # whisper encoder
+    encoder_name = "openai/whisper-base"
+    
+    encoder = WhisperWrappedEncoder.load(encoder_name)
+
+    
+    for name, params in encoder.named_parameters():
+        params.requires_grad = False
+    encoder.eval()
+
+
     return encoder
 
 
@@ -188,9 +187,12 @@ class ASRLLM(nn.Module):
     ):
         
         audio_mel = kwargs.get("audio_mel", None)
+        
         if audio_mel is None: 
             raise ValueError("audio_mel is required for direct spectorgram pipeline")
     ### Encoder code block - TODO: remove later
+        encoder_outputs = None 
+
         self.encoder.eval() # TODO: remove later
 
         # 1. Whisper encode audio -> [B, n_mels, T] -> permute -> [B, T, n_mels] for var-length 
