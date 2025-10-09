@@ -10,6 +10,10 @@ model:
   llm_model_path: null
   llm_type: decoder_only
   llm_dim: 3072
+  
+  # Encoder settings
+  encoder_model_name: openai/whisper-base
+  encoder_dim: 512
 
   # Projector settings
   projector: linear

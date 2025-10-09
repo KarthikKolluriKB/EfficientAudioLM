@@ -95,8 +95,8 @@ def setup_llm(train_config, model_config, **kwargs):
 def setup_projector(train_config, model_config, **kwargs):
     projector_name = model_config.projector
     if projector_name == "linear":
-        from models.projector import LinearProjector
-        projector = LinearProjector(model_config)
+        from models.projector import EncoderProjectorConcat
+        projector = EncoderProjectorConcat(model_config)
     elif projector_name == "patched_linear":
         from models.projector import PatchedProjector
         projector = PatchedProjector(model_config)
