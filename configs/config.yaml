@@ -20,14 +20,14 @@ model:
   mel_size: 80           # mel bins
   normalize: false
   mel_time_stride: 8     # tokens every 8 frames (controls sequence length)
-  projector_ds_rate: 1   # each token sees 8*2=16 frames of context (receptive field)
+  projector_ds_rate: 2   # each token sees 8*2=16 frames of context (receptive field)
   mel_input_norm: true  # e.g., log-mel + per-bin mean/var norm if true
   mel_dropout: 0.1       # dropout on projected tokens; try 0.0–0.1 if overfitting
 
 train:
   model_name: ASRLLM
   run_validation: true
-  batch_size: 8                   # micro-batch per GPU
+  batch_size: 6                  # micro-batch per GPU
   batching_strategy: packing
   context_length: 384             # balance speed/quality on 3B
   gradient_accumulation_steps: 2  # effective batch ≈ 32
@@ -41,7 +41,7 @@ train:
   seed: 42
   use_fp16: false                 # prefer bf16 on A6000
   mixed_precision: true
-  val_batch_size: 8               # larger no-grad batches speed up eval
+  val_batch_size: 5               # larger no-grad batches speed up eval
 
   # Training options
   use_peft: false
