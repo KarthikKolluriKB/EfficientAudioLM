@@ -20,7 +20,7 @@ model:
   mel_size: 80           # mel bins
   normalize: false
   mel_time_stride: 8     # tokens every 8 frames (controls sequence length)
-  projector_ds_rate: 2   # each token sees 8*2=16 frames of context (receptive field)
+  projector_ds_rate: 4   # each token sees 8*2=16 frames of context (receptive field)
   mel_input_norm: true  # e.g., log-mel + per-bin mean/var norm if true
   mel_dropout: 0.1       # dropout on projected tokens; try 0.0–0.1 if overfitting
 
