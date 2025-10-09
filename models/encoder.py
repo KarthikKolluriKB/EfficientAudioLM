@@ -9,7 +9,7 @@ from transformers import WhisperModel
 class WhisperWrappedEncoder:
 
      @classmethod
-     def load(cls, model_config):
+     def load(cls, model_name):
         
         def extract_variable_length_features(self, x: torch.Tensor):
             """
@@ -31,6 +31,6 @@ class WhisperWrappedEncoder:
             return x
     
 
-        encoder = WhisperModel.from_pretrained(model_config.encoder_model,torch_dtype=torch.bfloat16).encoder
+        encoder = WhisperModel.from_pretrained(model_name,torch_dtype=torch.bfloat16).encoder
         
         return encoder
