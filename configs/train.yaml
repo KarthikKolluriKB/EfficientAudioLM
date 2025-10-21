@@ -8,13 +8,13 @@ model:
   llm_dim: 3072
 
   # Projector
-  projector: patched_linear
+  projector: linear
   mel_size: 80 # mel bins 
   normalize: false
 
   # Patched projector settings
   mel_time_stride: 12    # tokens every 8 frames (controls sequence length)
-  projector_ds_rate: 3  # each token sees 8*2=16 frames of context (receptive field)
+  projector_ds_rate: 4  # each token sees 8*2=16 frames of context (receptive field)
 
   # pre-patch normalization and projector dropout
   mel_input_norm: false  # e.g., log-mel + per-bin mean/var norm if true 
@@ -45,7 +45,7 @@ train:
   val_batch_size: 8                # larger no-grad batches speed up eval
 
   use_peft: false
-  output_dir: outputs_3b_patched_12*3_proj_100h/
+  output_dir: output_llama3b_lin_proj_20h/
   freeze_layers: false
   num_freeze_layers: 0
   quantization: false
@@ -91,7 +91,7 @@ log:
   wandb_dir: ./wandb
   wandb_entity_name: ASRLLM
   wandb_project_name: ASRLLM_llama_3B_20h
-  wandb_exp_name: exp_patched_12*3_proj
+  wandb_exp_name: exp_linear_proj_20h
   log_dir: ./logs
-  log_filename: train_3b_patched_12*3_proj_20h.log
-  log_interval: 50
+  log_filename: train_llama3b_linear_proj_20h.log
+  log_interval: 100
