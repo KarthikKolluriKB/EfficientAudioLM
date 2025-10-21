@@ -59,7 +59,8 @@ class SpeechDatasetJsonl(torch.utils.data.Dataset):
         #self.inference_mode = dataset_config.get("inference_mode", False)
         self.inference_mode = False
         #self.normalize = dataset_config.get("normalize", False)
-        self.normalize = True
+        # TODO: set normalize to False for whisper
+        self.normalize = False
         #self.input_type = dataset_config.get("input_type", None)
         self.input_type = "mel"
         assert self.input_type in ["raw", "mel"], "input_type must be one of [raw, mel]" 
@@ -67,6 +68,12 @@ class SpeechDatasetJsonl(torch.utils.data.Dataset):
         self.data_list = []
         if split == "train":
             with open(dataset_config.train_data_path, encoding='utf-8') as fin:
+                for line in fin:
+                    data_dict = json.loads(line.strip())
+                    self.data_list.append(data_dict)
+        
+        elif split == "test":
+            with open(dataset_config.test_data_path, encoding='utf-8') as fin:
                 for line in fin:
                     data_dict = json.loads(line.strip())
                     self.data_list.append(data_dict)

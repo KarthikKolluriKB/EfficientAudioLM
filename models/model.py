@@ -13,8 +13,7 @@ from peft import LoraConfig, TaskType, get_peft_model, prepare_model_for_kbit_tr
 from peft import PeftModel, PeftConfig
 
 
-from models.encoder import WhisperWrappedEncoder
-from utils.metrics import compute_accuracy
+from utils.metrics import compute_accuracy, compute_wer, decode_texts_from_outputs
 from utils.train_utils import print_model_size, print_module_size
 
 logger = logging.getLogger(__name__)
@@ -25,21 +24,17 @@ def model_builder(train_config, model_config, **kwargs):
     # 1. tokenizer
     tokenizer = setup_tokenizer(train_config, model_config, **kwargs)
 
-    # 2. llm 
+    # 2. projector
+    projector = setup_projector(train_config, model_config, **kwargs)
+
+
+    # 3. llm 
     llm = setup_llm(train_config, model_config, **kwargs)
 
-    # 3. projector 
-    projector = setup_projector(train_config, model_config, **kwargs)
-    #encoder_projector = setup_encoder_projector(train_config, model_config, **kwargs) # fp32
-
-    # TODO: remove later
-    # 4. encoder (optional, for spectrogram input) 
-    encoder = setup_encoder() 
-
-    # 2. model
+    
+    # 4. model
     model = ASRLLM(
         llm,
-        encoder, # TODO: remove later
         projector,
         tokenizer,
         train_config,
@@ -49,6 +44,7 @@ def model_builder(train_config, model_config, **kwargs):
 
     # load ckpt 
     ckpt_path = kwargs.get("ckpt_path", None) 
+    # TODO: check models is loading correctly
     if ckpt_path is not None:
         logger.info(f"Load checkpoint from {ckpt_path}")
         ckpt_dir = torch.load(ckpt_path, map_location="cpu")
@@ -77,6 +73,7 @@ def setup_llm(train_config, model_config, **kwargs):
             load_in_8bit=True if train_config.quantization else None,
             device_map="auto" if train_config.quantization else None,
     )
+
     print_module_size(model, model_config.llm_model_name)
 
     if train_config.quantization:
@@ -92,39 +89,27 @@ def setup_llm(train_config, model_config, **kwargs):
     return model
 
 
+
 def setup_projector(train_config, model_config, **kwargs):
-    projector_name = model_config.projector
-    if projector_name == "linear":
-        from models.projector import EncoderProjectorConcat
-        projector = EncoderProjectorConcat(model_config)
-    elif projector_name == "patched_linear":
-        from models.projector import PatchedProjector
-        projector = PatchedProjector(model_config)
-    print_module_size(projector, projector_name)
+    if model_config.projector == "linear":
+        from models.projector import MelProjectorConcat
+        projector = MelProjectorConcat(model_config)
+    elif model_config.projector == "cov1d-linear":
+        from models.projector import EncoderProjectorCov1d
+        projector = EncoderProjectorCov1d(model_config)
+    elif model_config.projector == "q-former":
+        from models.projector import EncoderProjectorQFormer
+        projector = EncoderProjectorQFormer(model_config)
+    else:
+        return None
+    print_module_size(projector, model_config.projector)
     return projector
-
-# TODO: remove later
-def setup_encoder():
-    
-    # whisper encoder
-    encoder_name = "openai/whisper-base"
-    
-    encoder = WhisperWrappedEncoder.load(encoder_name)
-
-    
-    for name, params in encoder.named_parameters():
-        params.requires_grad = False
-    encoder.eval()
-
-
-    return encoder
 
 
 class ASRLLM(nn.Module):
     
     def __init__(self,
                  llm: nn.Module,
-                 encoder: Optional[nn.Module], ##TODO: remove later
                  projector: Optional[nn.Module],
                  tokenizer,
                  train_config,
@@ -136,9 +121,6 @@ class ASRLLM(nn.Module):
         # llm 
         self.llm = llm
 
-        # encoder
-        self.encoder = encoder # TODO: remove later
-
         # projector
         self.projector = projector
 
@@ -147,28 +129,10 @@ class ASRLLM(nn.Module):
 
         self.train_config = train_config
         self.model_config = model_config
-
-
-    @staticmethod
-    def _masked_next_token_accuracy(logits: torch.FloatTensor,
-                                labels: torch.LongTensor,
-                                ignore_label: int = -100,
-                                return_counts: bool = True):
-        """
-        Compute masked next-token accuracy with standard causal shift:
-        compare logits at t vs labels at t+1, ignoring positions == ignore_label.
-        """
-        # logits: [B, T, V], labels: [B, T]
-        preds = logits.argmax(dim=-1)                # [B, T]
-        preds = preds[:, :-1]                        # [B, T-1]
-        tgt = labels[:, 1:]                          # [B, T-1]
-        mask = tgt.ne(ignore_label)                  # [B, T-1]
-        if mask.sum().item() == 0:
-            return (preds.new_tensor(0.0), 0, 0) if return_counts else preds.new_tensor(0.0)
-        num_correct = (preds.eq(tgt) & mask).sum()
-        denom = mask.sum()
-        acc = num_correct.float() / denom.float()
-        return (acc, num_correct.item(), denom.item()) if return_counts else acc
+        self.dataset_config = kwargs.get("data_config", None)
+        
+        # Initialize metric flag for accuracy computation
+        self.metric = kwargs.get("metric", True)  # Default to True if not specified
 
 
     def forward(
@@ -187,149 +151,221 @@ class ASRLLM(nn.Module):
     ):
         
         audio_mel = kwargs.get("audio_mel", None)
-        
-        if audio_mel is None: 
-            raise ValueError("audio_mel is required for direct spectorgram pipeline")
-    ### Encoder code block - TODO: remove later
-        encoder_outputs = None 
+        audio_mel_mask = kwargs.get("audio_mel_mask", None)
+        audio_mel_post_mask = kwargs.get("audio_mel_post_mask", None) # optional, downsampled mask for whisper
+        audio = kwargs.get("audio", None)
+        audio_mask = kwargs.get("audio_mask", None)
 
-        self.encoder.eval() # TODO: remove later
+        modality_mask = kwargs.get("modality_mask", None)
 
-        # 1. Whisper encode audio -> [B, n_mels, T] -> permute -> [B, T, n_mels] for var-length 
-        with torch.no_grad():
-            encoder_outputs = self.encoder(audio_mel.permute(0, 2, 1)).last_hidden_state # [B, T_enc, D]
-    
-        enc_tok = self.projector(encoder_outputs)  # [B, T_a, D_llm]
-   ### End of encoder code block
-    ### Original code block    
-        # # 1) Projector Mel -> LLM token embeddings
-        # enc_tok = self.projector(audio_mel)  # [B, T_a, D_llm]
 
-        # 2) Embed prompt tokens
-        token_embeds = None 
+        # Create post mask if not provided
+        if audio_mel_post_mask is None:
+            audio_mel_post_mask = torch.ones(audio_mel.size()[:-1], dtype=torch.long, device=audio_mel.device)
+
+        # 2. Projector (Project to LLM embedding space)
+        if self.model_config.projector == "q-former":
+            # Q-former
+            encoder_outputs = self.projector(audio_mel, audio_mel_post_mask) # [B, T_enc_proj, D_llm]
+
+        elif self.model_config.projector in ["linear", "cov1d-linear"]:
+            # linear or conv1d + linear
+            encoder_outputs = self.projector(audio_mel)  # [B, T_enc_proj, D_llm]
+
+
+        # 3. Token embedding 
         if input_ids is not None: 
             # Santize any placeholder ids for embedding lookup
-            input_ids = input_ids.clone()
             input_ids[input_ids == -1] = 0
     
+            # Resolve embedding layer across model architectures
             if hasattr(self.llm, 'model') and hasattr(self.llm.model, "embed_tokens"):
-                token_embeds = self.llm.model.embed_tokens(input_ids)
+                inputs_embeds = self.llm.model.embed_tokens(input_ids)
             elif hasattr(self.llm, "model") and hasattr(self.llm.model, "model") and hasattr(self.llm.model.model, "embed_tokens"):
-                token_embeds = self.llm.model.model.embed_tokens(input_ids)
+                inputs_embeds = self.llm.model.model.embed_tokens(input_ids)
             else:
-                token_embeds = self.llm.get_input_embeddings()(input_ids)
+                inputs_embeds = self.llm.model.model.model.embed_tokens(input_ids)
+
         
-        # 3) Align dtypes with LLM
-        llm_dtype = next(self.llm.parameters()).dtype
-        if enc_tok.dtype != llm_dtype:
-            enc_tok = enc_tok.to(llm_dtype)
-        if token_embeds is not None and token_embeds.dtype != llm_dtype:
-            token_embeds = token_embeds.to(llm_dtype)
+        if modality_mask is not None:
+            modality_mask_start_indices = (modality_mask == True).float().argmax(dim=1)
+            modality_lengths = torch.clamp(modality_mask.sum(dim=1), max=encoder_outputs.shape[1]).tolist()
 
-        # 4) Concat encoder feature and token embeddings (audio prefix + text token embeddings)
-        # Concatenate audio tokens + prompt tokens
-        if token_embeds is not None:
-            inputs_embeds = torch.cat([enc_tok, token_embeds], dim=1)  # [B, T_audio + T_text, D]
-        else:
-            inputs_embeds = enc_tok
-
-        # 5) Build attention mask aligned with inputs_embeds
-        # Build attention mask
-        B, T_total, _ = inputs_embeds.size()
-        T_audio = enc_tok.size(1)
-        if attention_mask is not None and input_ids is not None:
-            audio_attn = torch.ones((B, T_audio), dtype=attention_mask.dtype, device=inputs_embeds.device)
-            attention_mask = torch.cat([audio_attn, attention_mask], dim=1)
-        else:
-            attention_mask = torch.ones((B, T_total), dtype=torch.long, device=inputs_embeds.device)
-
-        # 6) Labels: ignore loss on audio prefix (mask with ignore_index e.g: -100)
-        if labels is not None: 
-            if labels.dim() != 2: 
-                raise ValueError("Labels should be of shape 2D (B, T_text) for cross-entropy loss.")
-            ignore_pad = torch.full((B, T_audio), -100, dtype=labels.dtype, device=labels.device)
-            labels = torch.cat([ignore_pad, labels], dim=1) # [B, T_audio + T_text]
+            encoder_outs_pad = torch.zeros_like(inputs_embeds)
+            for i in range(encoder_outputs.shape[0]):
+                encoder_outs_pad[
+                    i, modality_mask_start_indices[i]:modality_mask_start_indices[i]+modality_lengths[i]
+                ] = encoder_outputs[i][:modality_lengths[i]]
+            
+            inputs_embeds = encoder_outs_pad + inputs_embeds * (~modality_mask[:, :, None])
 
         # Fast path for generation setup
         if kwargs.get("inference_mode", False): 
             return inputs_embeds, attention_mask
         
-        # 7) Forward through LLM using inputs_embeds only 
-        llm_kwargs = {
-            "inputs_embeds": inputs_embeds,
-            "attention_mask": attention_mask,
-            "labels": labels,
-            "use_cache": use_cache,
-            "output_attentions": output_attentions,
-            "output_hidden_states": output_hidden_states,
-            "return_dict": return_dict,
-            "past_key_values": past_key_values,
-            "position_ids": position_ids,
-        }
-
-        llm_kwargs = {k: v for k, v in llm_kwargs.items() if v is not None}
-
-        model_outputs = self.llm(**llm_kwargs)
+        # Default path for training / evaluation
+        model_outputs = self.llm(inputs_embeds=inputs_embeds, attention_mask=attention_mask, labels=labels)
 
         # Metrics
-        metrics = None 
-        if labels is not None and hasattr(model_outputs, "logits"):
+        metrics = {}
+        if self.metric:
             with torch.no_grad():
-                acc, num_correct, denom = self._masked_next_token_accuracy(
-                    model_outputs.logits, labels, ignore_label=-100, return_counts=True
-                )
-            metrics = {"acc": float(acc.item()), "num_correct": num_correct, "num_total": denom}
+                # Compute token accuracy
+                preds = torch.argmax(model_outputs.logits, -1)
+                acc = compute_accuracy(preds.detach()[:, :-1], labels.detach()[:, 1:], ignore_label=-100)
+                metrics["acc"] = float(acc.item())
+
+                # Compute WER
+                if hasattr(model_outputs, "logits"):
+                    # First decode the texts using decode_texts_from_outputs
+                    hyp_texts, ref_texts = decode_texts_from_outputs(
+                        logits=model_outputs.logits,
+                        labels=labels,
+                        tokenizer=self.tokenizer,
+                        ignore_label=-100
+                    )
+                    
+                    # Then compute WER using the decoded texts
+                    wer_score = compute_wer(
+                        hyp_texts=hyp_texts,
+                        ref_texts=ref_texts
+                    )
+                    metrics["wer"] = float(wer_score)
 
         return model_outputs, metrics
     
     @torch.no_grad()
+    def generate(self,
+                input_ids: torch.LongTensor = None,
+                attention_mask: Optional[torch.Tensor] = None,
+                position_ids: Optional[torch.LongTensor] = None,
+                past_key_values: Optional[List[torch.FloatTensor]] = None,
+                inputs_embeds: Optional[torch.FloatTensor] = None,
+                labels: Optional[torch.LongTensor] = None,
+                use_cache: Optional[bool] = None,
+                output_attentions: Optional[bool] = None,
+                output_hidden_states: Optional[bool] = None,
+                return_dict: Optional[bool] = None,
+                **kwargs,
+                ):
+        kwargs["inference_mode"] = True
+
+        if inputs_embeds is None:
+            inputs_embeds, attention_mask = self.forward(
+                input_ids=input_ids,
+                attention_mask=attention_mask,
+                position_ids=position_ids,
+                past_key_values=past_key_values,
+                inputs_embeds=inputs_embeds,
+                labels=labels,
+                use_cache=use_cache,
+                output_attentions=output_attentions,
+                output_hidden_states=output_hidden_states,
+                return_dict=return_dict,
+                **kwargs,
+            )
+
+        model_outputs = self.llm.generate(
+            inputs_embeds=inputs_embeds,
+            # max_length=kwargs.get("max_length", 200),
+            max_new_tokens=kwargs.get("max_new_tokens", 200),
+            num_beams=kwargs.get("num_beams", 4),
+            do_sample=kwargs.get("do_sample", False),
+            min_length=kwargs.get("min_length", 1),
+            top_p=kwargs.get("top_p", 1.0),
+            repetition_penalty=kwargs.get("repetition_penalty", 1.0),
+            length_penalty=kwargs.get("length_penalty", 1.0),
+            temperature=kwargs.get("temperature", 1.0),
+            attention_mask=attention_mask,
+            bos_token_id=self.tokenizer.bos_token_id,
+            eos_token_id=self.tokenizer.eos_token_id,
+            pad_token_id=self.tokenizer.pad_token_id
+        )
+
+        return model_outputs
+    
+    @torch.no_grad()
     def inference(
         self,
-        audio_mel: torch.Tensor,
-        prompt: str = "",
-        max_new_tokens: int = 64,
-        temperature: float = 0.7,
-        top_p: float = 0.9,
-        num_beams: int = 1,
-        do_sample: bool = None,
-        device: str = None,
-        **gen_kwargs,
+        audio_path=None,
+        prompt=None,
+        generation_config=None,
+        logits_processor=None,
+        stopping_criteria=None,
+        prefix_allowed_tokens_fn=None,
+        synced_gpus=None,
+        assistant_model=None,
+        streamer=None,
+        negative_prompt_ids=None,
+        negative_prompt_attention_mask=None,
+        **kwargs,
     ):
-        if device is None:
-            device = next(self.parameters()).device
-        llm_dtype = next(self.llm.parameters()).dtype
+        # inference for asr model
 
-        if audio_mel.dim() == 2:
-            audio_mel = audio_mel.unsqueeze(0)
-        audio_mel = audio_mel.to(device, dtype=llm_dtype)
+        device = kwargs.get("device", "cuda")
+        if os.path.exists(audio_path):  # Audio-Text QA
+            import whisper
 
-        # Prompt tokens (plain string for base Llama)
-        enc = self.tokenizer(prompt, return_tensors="pt", add_special_tokens=False)
-        input_ids = enc["input_ids"].to(device)
-        attention_mask = enc["attention_mask"].to(device)
+            audio_raw = whisper.load_audio(audio_path)
+            audio_raw = whisper.pad_or_trim(audio_raw)
 
-        inputs_embeds, attn_mask = self.forward(
-            input_ids=input_ids, attention_mask=attention_mask, audio_mel=audio_mel, inference_mode=True
+            mel_size = getattr(
+                self.dataset_config, "mel_size", 80
+            )  # 80 for large v1 and v2, 128 for large v3
+            audio_mel = (
+                whisper.log_mel_spectrogram(audio_raw, n_mels=mel_size)
+                .permute(1, 0)[None, :, :]
+                .to(device)
+            )
+
+            encoder_outs = self.encoder.extract_variable_length_features(
+                audio_mel.permute(0, 2, 1)
+            )
+
+            
+            projector_dtype = next(self.projector.parameters()).dtype
+            encoder_outs = encoder_outs.to(projector_dtype)
+
+            if self.model_config.projector == "q-former":
+                audio_mel_post_mask = torch.ones(
+                    encoder_outs.size()[:-1], dtype=torch.long
+                ).to(encoder_outs.device)
+                encoder_outs = self.projector(encoder_outs, audio_mel_post_mask)
+            if self.model_config.projector == "linear":
+                encoder_outs = self.projector(encoder_outs)
+        else:  # Text QA
+            encoder_outs = torch.empty(
+                1, 0, self.llm.model.embed_tokens.embedding_dim
+            ).to(device)
+
+        prompt = "USER: {}\n ASSISTANT:".format(prompt)
+        prompt_ids = self.tokenizer.encode(prompt)
+        prompt_length = len(prompt_ids)
+        prompt_ids = torch.tensor(prompt_ids, dtype=torch.int64).to(device)
+
+        if hasattr(self.llm.model, "embed_tokens"):
+            inputs_embeds = self.llm.model.embed_tokens(prompt_ids)
+        elif hasattr(self.llm.model.model, "embed_tokens"):
+            inputs_embeds = self.llm.model.model.embed_tokens(prompt_ids)
+        else:
+            inputs_embeds = self.llm.model.model.model.embed_tokens(prompt_ids)
+
+        inputs_embeds = torch.cat(
+            (encoder_outs, inputs_embeds[None, :, :]), dim=1
+        )  # [audio,prompt]
+
+        attention_mask = torch.ones(inputs_embeds.size()[:-1], dtype=torch.long).to(
+            inputs_embeds.device
         )
 
-        if do_sample is None:
-            do_sample = num_beams == 1 and temperature > 0.0
-
-        gen_ids = self.llm.generate(
-            inputs_embeds=inputs_embeds,
-            attention_mask=attn_mask,
-            max_new_tokens=max_new_tokens,
-            do_sample=do_sample,
-            temperature=temperature,
-            top_p=top_p,
-            num_beams=num_beams if not do_sample else 1,
-            eos_token_id=self.tokenizer.eos_token_id,
-            pad_token_id=self.tokenizer.pad_token_id,
-            use_cache=True,
-            **gen_kwargs,
+        # generate
+        model_outputs = self.generate(
+            inputs_embeds=inputs_embeds, attention_mask=attention_mask, **kwargs
         )
-        # With inputs_embeds, generate returns only newly generated tokens
-        texts = self.tokenizer.batch_decode(gen_ids, skip_special_tokens=True)
-        if audio_mel.size(0) == 1:
-            texts = texts[0]
-        return texts
+
+        # Decode output ids to text
+        output_text = self.tokenizer.decode(
+            model_outputs[0], skip_special_tokens=True
+        )
+
+        return output_text

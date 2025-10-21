@@ -1,12 +1,11 @@
 import os 
 import time 
 import argparse 
-import warnings
+
 import torch 
 from torch.utils.data import DataLoader
 from torch.nn.utils import clip_grad_norm_
 from omegaconf import OmegaConf
-from torchtnt.utils.early_stop_checker import EarlyStopChecker
 
 # internal imports
 from utils.utils import set_seed, get_device, resolve_pad_token, ensure_dir, save_projector
@@ -14,83 +13,107 @@ from utils.log_config import get_logger
 from utils.wand_config import init_wandb
 from models.model import model_builder
 from datamodule.dataset import get_speech_dataset
-from utils.train_utils import save_and_print_examples, save_training_config, get_lr_scheduler
 from utils.metrics import decode_texts_from_outputs, compute_wer
+from utils.train_utils import print_model_size, print_module_size, save_and_print_examples
+import sys
 
+#from torchtnt.utils.early_stop_checker import EarlyStopChecker
+#from torch.optim.lr_scheduler import ReduceLROnPlateau
 
-# warnings
-warnings.filterwarnings(
-    "ignore",
-    message=".*will be changed to use torchaudio.load_with_torchcodec.*",
-    category=UserWarning,
-)
-
-
-def evaluate(cfg, model, dataloader, device):
+def evaluate(cfg, model, dataloader, device, enc_dtype, tokenizer):
+    """Evaluate the model on the given dataloader.
+    
+    Args:
+        model: The model to evaluate
+        dataloader: DataLoader containing validation/test data
+        device: Device to run evaluation on
+        enc_dtype: Data type for encoder inputs
+        
+    Returns:
+        tuple: Contains (validation loss, accuracy, WER score, word accuracy, 
+               hypothesis texts, reference texts)
+    """
     model.eval()
     total_loss, n_batches = 0.0, 0
-    num_correct, num_total = 0, 0
+    all_accuracies = []
+    all_wer_scores = []
     all_hyp_texts, all_ref_texts = [], []
-
+    
     use_autocast = bool(cfg.train.mixed_precision and getattr(device, "type", str(device)) == "cuda")
     amp_dtype = torch.bfloat16 if (torch.cuda.is_available() and torch.cuda.is_bf16_supported()) else torch.float16
 
     with torch.no_grad():
         for batch in dataloader:
+            # Move batch data to device
             input_ids = batch["input_ids"].to(device)
             attention_mask = batch["attention_mask"].to(device)
             labels = batch["labels"].to(device)
-            audio_mel = batch["audio_mel"].to(device)
+            audio_mel = batch["audio_mel"].to(device).to(enc_dtype)
+            modality_mask = batch['modality_mask'].to(device)
             
+
             if use_autocast:
-                with torch.autocast(device_type=device, dtype=amp_dtype, enabled=use_autocast):
+                with torch.autocast(device_type=device, dtype=amp_dtype): 
+                    # Forward pass
                     outputs, metrics = model(
                         input_ids=input_ids,
                         attention_mask=attention_mask,
                         labels=labels,
                         audio_mel=audio_mel,
+                        modality_mask=modality_mask
                     )
-            else:
-                outputs, metrics = model(
+                    
+            else: 
+                # Forward pass
+                outputs = model(
                     input_ids=input_ids,
                     attention_mask=attention_mask,
                     labels=labels,
                     audio_mel=audio_mel,
+                    modality_mask=modality_mask
                 )
             
+            # Accumulate loss
             total_loss += outputs.loss.item()
             n_batches += 1
+
+            # Store metrics from model
             if metrics is not None:
-                num_correct += metrics.get("num_correct", 0)
-                num_total  += metrics.get("num_total", 0)
-            
-            # Decode texts per-batch hyp and ref texts for WER
+                if "acc" in metrics:
+                    all_accuracies.append(metrics["acc"])
+                if "wer" in metrics:
+                    all_wer_scores.append(metrics["wer"])
+
+            # Get decoded texts from logits for final evaluation
             hyp_texts, ref_texts = decode_texts_from_outputs(
-                outputs=outputs,
+                logits=outputs.logits,
                 labels=labels,
-                tokenizer=model.tokenizer,
-                ignore_index=-100,
-                shift_causal=True,
-                skip_special_tokens=True,
-                clean_up_tokenization_spaces=True
+                tokenizer=tokenizer,
+                ignore_label=-100
             )
-            # Accumulate all texts
+            
+            # Accumulate texts
             all_hyp_texts.extend(hyp_texts)
             all_ref_texts.extend(ref_texts)
 
+    # Calculate final metrics
     val_loss = total_loss / max(n_batches, 1)
-    val_acc = num_correct / max(num_total, 1) if num_total > 0 else 0.0
-
-    # Compute WER over the entire validation set
-    # TODO: preset for each dataset
-    val_wer = compute_wer(all_hyp_texts, all_ref_texts)
-
-    # val word accuracy
-    val_word_acc = 1.0 - val_wer
-
+    val_acc = sum(all_accuracies) / max(len(all_accuracies), 1) if all_accuracies else 0.0
+    val_wer_score = sum(all_wer_scores) / max(len(all_wer_scores), 1) if all_wer_scores else 0.0
+    val_word_acc = 1.0 - val_wer_score if val_wer_score >= 0.0 else 0.0
+    
+    # Reset model to training mode
     model.train()
-    return val_loss, val_acc, val_wer, val_word_acc, all_hyp_texts, all_ref_texts
+    
+    return val_loss, val_acc, val_wer_score, val_word_acc, all_hyp_texts, all_ref_texts
 
+# Early Stopping 
+# early_stop = EarlyStopChecker(
+#     mode="min",
+#     patience=2,
+#     min_delta=0.001, 
+#     threshold_mode="abs"
+# )
 
 def main(): 
     """
@@ -120,19 +143,6 @@ def main():
     device = get_device() 
     logger.info(f"Device: {device}")
 
-    # Early stopping
-    if cfg.train.es_enabled:
-        logger.info("Early stopping is enabled")
-        early_stop = EarlyStopChecker(
-            mode=cfg.train.get("mode", "min"),
-            patience=cfg.train.get("patience", 5),
-            min_delta=cfg.train.get("wer_min_delta", 0.002),
-            threshold_mode="abs"
-        )
-    else: 
-        logger.info("Early stopping is disabled")
-
-
     # Model (ASR + LLM)
     model, tokenizer = model_builder(cfg.train, cfg.model)
     pad_id = resolve_pad_token(tokenizer, model.llm)
@@ -153,15 +163,17 @@ def main():
     logger.info(f"Model initialized with {sum(p.numel() for p in model.parameters() if p.requires_grad)} trainable parameters")
 
     # Dataset and DataLoader
-    train_split = cfg.data.get("train_split", cfg.data.get("test_split", "train"))
+    # FIXME: currently only support train dataset )
+    split = cfg.data.get("train_split", cfg.data.get("test_split", "train"))
 
-    train_ds = get_speech_dataset(cfg.data, tokenizer, split=train_split)
+    train_ds = get_speech_dataset(cfg.data, tokenizer, split=split)
     train_dataloader = DataLoader(
         train_ds, 
         batch_size=cfg.train.batch_size,
         shuffle=True,
         collate_fn=train_ds.collator,
         num_workers=cfg.train.num_workers,
+        # FIXME: check if device is cuda or cuda:0 
         pin_memory=(device == "cuda"),
         persistent_workers=True if cfg.train.num_workers > 0 else False
     )
@@ -190,62 +202,21 @@ def main():
             use_wand=True, 
             project=cfg.log.wandb_project_name,
             run_name=cfg.log.wandb_exp_name,
-            tags=[cfg.model.llm_model_name, cfg.model.projector, "patched-linear-projector"],
+            tags=[cfg.model.llm_model_name, cfg.model.encoder_model_name, cfg.model.projector, "projector-only"],
             config=OmegaConf.to_container(cfg, resolve=True)
         )
         logger.info("Initialized W&B run")
 
     # Mixed precision and scaler
-    use_autocast = bool(cfg.train.mixed_precision and getattr(device, "type", str(device)) == "cuda")
+    use_autocast = bool(cfg.train.mixed_precision and device == "cuda")
     amp_dtype = torch.bfloat16 if (torch.cuda.is_available() and torch.cuda.is_bf16_supported()) else torch.float16
 
     # Grad Scaler for mixed precision
     scaler = torch.amp.GradScaler(enabled=bool(cfg.train.use_fp16))
 
-    # LR Scheduler
-    num_training_steps = len(train_dataloader) * cfg.train.num_epochs
-    num_warmup_steps = int(cfg.train.get("warmup_steps", 1000))
-    scheduler_type = cfg.train.get("lr_scheduler", "cosine_warmup")
-    num_cycles = cfg.train.get("num_cycles", 0.5)   
-
-    lr_scheduler = get_lr_scheduler(
-        optimizer=optimizer,
-        scheduler_type=scheduler_type,
-        num_training_steps=num_training_steps,
-        num_warmup_steps=num_warmup_steps,
-        num_cycles=num_cycles
-    )
-
-    # Print training configuration summary
-    logger.info("=" * 80)
-    logger.info("TRAINING CONFIGURATION SUMMARY")
-    logger.info("=" * 80)
-    logger.info(f"LLM Model Name: {cfg.model.llm_model_name}")
-    logger.info(f"LLM Model Path: {cfg.model.llm_model}")
-    logger.info(f"Projector Type: {cfg.model.projector}")
-    logger.info(f"Dataset: {cfg.data.get('dataset', 'speech_dataset')}")
-    logger.info(f"Train Data Path: {cfg.data.get('train_data_path', 'N/A')}")
-    logger.info(f"Val Data Path: {cfg.data.get('val_data_path', 'N/A')}")
-    logger.info(f"Total Epochs: {cfg.train.num_epochs}")
-    logger.info(f"Batch Size: {cfg.train.batch_size}")
-    logger.info(f"Learning Rate: {cfg.train.lr}")
-    logger.info(f"Early Stopping: {'Enabled' if cfg.train.es_enabled else 'Disabled'}")
-    if cfg.train.es_enabled:
-        logger.info(f"  - Mode: {cfg.train.es_mode}")
-        logger.info(f"  - Patience: {cfg.train.es_patience}")
-        logger.info(f"  - Min Delta: {cfg.train.es_min_delta}")
-        logger.info(f"  - WER Min Delta: {cfg.train.es_wer_min_delta}")
-    logger.info(f"Scheduler Type: {scheduler_type}")
-    logger.info(f"Warmup Steps: {num_warmup_steps}")
-    logger.info(f"Total Training Steps: {num_training_steps}")
-    if scheduler_type == "cosine_warmup":
-        logger.info(f"Num Cycles: {num_cycles}")
-    logger.info(f"Mixed Precision: {cfg.train.mixed_precision}")
-    logger.info(f"Device: {device}")
-    logger.info("=" * 80)
-
     # Training loop
     global_step = 0
+    best_val_loss = float("inf")
     best_val_wer = float("inf")
     start_time = time.time()
     model.train()
@@ -262,50 +233,50 @@ def main():
             attention_mask = batch["attention_mask"].to(device, non_blocking=True)
             labels = batch["labels"].to(device, non_blocking=True)
             audio_mel = batch["audio_mel"].to(device, non_blocking=True)
+            modality_mask = batch['modality_mask'].to(device, non_blocking=True)
 
             # Optimizer zero grad
             optimizer.zero_grad(set_to_none=True)
 
             if use_autocast:
-                with torch.autocast(device_type=device, dtype=amp_dtype, enabled=use_autocast): 
+                with torch.autocast(device_type=device, dtype=amp_dtype): 
                     # Forward pass
                     outputs, metrics = model(
                         input_ids=input_ids,
                         attention_mask=attention_mask,
                         labels=labels,
-                        audio_mel=audio_mel
+                        audio_mel=audio_mel,
+                        modality_mask=modality_mask
                     )
                     loss = outputs.loss
                     
             else: 
                 # Forward pass
-                outputs, metrics= model(
+                outputs = model(
                     input_ids=input_ids,
                     attention_mask=attention_mask,
                     labels=labels,
-                    audio_mel=audio_mel
+                    audio_mel=audio_mel,
+                    modality_mask=modality_mask
                 )
                 loss = outputs.loss
 
             # Accuracy for logging
             if metrics is not None and "acc" in metrics:
-                acc = float(metrics["acc"])
+                acc = metrics["acc"]
 
-            # Computing WER per-batch 
+            # Compute WER per batch 
             hyp_texts, ref_texts = decode_texts_from_outputs(
-                outputs=outputs,
+                logits=outputs.logits,
                 labels=labels,
                 tokenizer=tokenizer,
-                ignore_index=-100,
-                shift_causal=True,
-                skip_special_tokens=True,
-                clean_up_tokenization_spaces=True
+                ignore_label=-100
             )
 
             batch_wer = compute_wer(hyp_texts, ref_texts)
 
-            # Word Accuracy = 1 - WER
-            word_acc = 1.0 - batch_wer
+            # Word-level accuracy
+            word_acc = 1.0 - batch_wer if batch_wer >= 0.0 else 0.0
 
             # Backward pass and optimization step
             if scaler.is_enabled(): 
@@ -315,20 +286,16 @@ def main():
                     clip_grad_norm_(projector_params, cfg.train.grad_clip)
                 scaler.step(optimizer)
                 scaler.update()
-                # Update LR scheduler
-                lr_scheduler.step()
             else:
                 loss.backward()
                 if cfg.train.grad_clip is not None: 
                     clip_grad_norm_(projector_params, cfg.train.grad_clip)
                 optimizer.step()
-                # Update LR scheduler
-                lr_scheduler.step()
 
             if global_step % cfg.log.log_interval == 0: 
                 elapsed = time.time() - start_time
                 lr = optimizer.param_groups[0]["lr"]
-                logger.info(f"Epoch={epoch} Step={global_step} WER={batch_wer:.4f} Loss={loss.item():.4f} Acc={float(acc):.4f} LR={lr:.6e} Time={elapsed:.2f}s")
+                logger.info(f"Epoch={epoch} | Step={global_step} | WER={batch_wer:.4f} | W_ACC={word_acc:.4f} | Loss={loss.item():.4f} | Acc={float(acc):.4f} | LR={lr:.6e} | Time={elapsed:.2f}s")
                 if run is not None: 
                     run.log({
                         "train/wer": batch_wer,
@@ -345,17 +312,19 @@ def main():
 
 
         # Validation at the end of each epoch
-        val_loss, val_acc, val_wer, val_word_acc, all_hyp_texts, all_ref_texts = evaluate(cfg, model, val_dataloader, device)
-        logger.info(f"Epoch {epoch} Validation WER: {val_wer:.4f}, Validation Loss: {val_loss:.4f}, Validation Acc: {val_acc:.4f}, Validation Word Acc: {val_word_acc:.4f}  ")
+        val_loss, val_acc, val_wer_score, val_word_acc, all_hyp_texts, all_ref_texts = evaluate(cfg, model, val_dataloader, device, enc_dtype, tokenizer=tokenizer)
+        logger.info(f"Epoch {epoch} | Val WER: {val_wer_score:.4f} | Val Word Acc: {val_word_acc:.4f} | Val Loss: {val_loss:.4f} | Val Acc: {val_acc:.4f}")
         if run is not None: 
             run.log({
-                "val/wer": val_wer,
+                "val/wer": val_wer_score,
+                "val/word_acc": val_word_acc,
                 "val/loss": val_loss,
                 "val/acc": val_acc,
                 "val/epoch": epoch
             }, step=global_step)
 
-        # Save hypothesis and reference texts for analysis
+
+        # Save hyp and ref texts for a few examples
         save_and_print_examples(
             hyp_texts=all_hyp_texts,
             ref_texts=all_ref_texts,
@@ -366,32 +335,28 @@ def main():
             run=run,
             seed=cfg.train.seed
         )
-        
+
         # Save best model
-        if val_wer < best_val_wer - 1e-6:  # small tolerance to avoid saving too often
-            best_val_wer = val_wer
+        if val_wer_score < best_val_wer:
+            best_val_wer = val_wer_score
             best_val_path = os.path.join(cfg.train.output_dir, "projector_best_wer.pt")
             save_projector(model, best_val_path, global_step)
             logger.info(f"New best model saved at step {global_step} to {best_val_path} with val_wer {best_val_wer:.4f}")
 
         # early stopping 
-        if cfg.train.es_enabled and early_stop.check(val_wer):
-            logger.info(f"Early stopping at epoch: {epoch} (patience={early_stop.patience})")
-            break
+        # if early_stop.check(val_loss):
+        #     logger.info(f"Early stopping at epoch: {epoch} (patience={early_stop.patience})")
+        #     break
 
     # Final model checkpoint (for reference)
     final_path = os.path.join(cfg.train.output_dir, "projector_final.pt")
     save_projector(model, final_path, global_step)
     logger.info(f"Final model checkpointed at: {final_path}")
 
-    # Save training config to output dir
-    cfg_out_path = save_training_config(cfg, cfg.train.output_dir)
-    logger.info(f"Training configuration saved to: {cfg_out_path}")
-
     # End of training     
     logger.info("Training completed.....")
     logger.info("Training Time: {:.2f} minutes".format((time.time() - start_time) / 60))
-    logger.info(f"Best validation WER: {best_val_wer:.4f}")
+    logger.info(f"Best validation wer: {best_val_wer:.4f}")
     logger.info(f"Final projector model saved to: {best_val_path}")
 
     if run is not None: 
@@ -399,4 +364,17 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+
+    # Debugging flag
+    DEBUG = True
+
+    if DEBUG:
+        sys.argv = [
+            'train.py',
+            '--config', 'configs/test_config.yaml'
+        ]
+
+        main()
+    else:
+        main()
+
