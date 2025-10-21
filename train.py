@@ -202,7 +202,7 @@ def main():
             use_wand=True, 
             project=cfg.log.wandb_project_name,
             run_name=cfg.log.wandb_exp_name,
-            tags=[cfg.model.llm_model_name, cfg.model.encoder_model_name, cfg.model.projector, "projector-only"],
+            tags=[cfg.model.llm_model_name, cfg.model.projector, "projector-only"],
             config=OmegaConf.to_container(cfg, resolve=True)
         )
         logger.info("Initialized W&B run")
