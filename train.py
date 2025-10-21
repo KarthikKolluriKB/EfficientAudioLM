@@ -366,7 +366,7 @@ def main():
 if __name__ == "__main__":
 
     # Debugging flag
-    DEBUG = True
+    DEBUG = False
 
     if DEBUG:
         sys.argv = [
