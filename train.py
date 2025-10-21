@@ -20,14 +20,14 @@ import sys
 #from torchtnt.utils.early_stop_checker import EarlyStopChecker
 #from torch.optim.lr_scheduler import ReduceLROnPlateau
 
-def evaluate(cfg, model, dataloader, device, enc_dtype, tokenizer):
+def evaluate(cfg, model, dataloader, device, tokenizer):
     """Evaluate the model on the given dataloader.
     
     Args:
         model: The model to evaluate
         dataloader: DataLoader containing validation/test data
-        device: Device to run evaluation on
-        enc_dtype: Data type for encoder inputs
+        device: Device to run evaluation on 
+        tokenizer: Tokenizer for decoding outputs
         
     Returns:
         tuple: Contains (validation loss, accuracy, WER score, word accuracy, 
@@ -48,7 +48,7 @@ def evaluate(cfg, model, dataloader, device, enc_dtype, tokenizer):
             input_ids = batch["input_ids"].to(device)
             attention_mask = batch["attention_mask"].to(device)
             labels = batch["labels"].to(device)
-            audio_mel = batch["audio_mel"].to(device).to(enc_dtype)
+            audio_mel = batch["audio_mel"].to(device)
             modality_mask = batch['modality_mask'].to(device)
             
 
@@ -312,7 +312,7 @@ def main():
 
 
         # Validation at the end of each epoch
-        val_loss, val_acc, val_wer_score, val_word_acc, all_hyp_texts, all_ref_texts = evaluate(cfg, model, val_dataloader, device, enc_dtype, tokenizer=tokenizer)
+        val_loss, val_acc, val_wer_score, val_word_acc, all_hyp_texts, all_ref_texts = evaluate(cfg, model, val_dataloader, device, tokenizer=tokenizer)
         logger.info(f"Epoch {epoch} | Val WER: {val_wer_score:.4f} | Val Word Acc: {val_word_acc:.4f} | Val Loss: {val_loss:.4f} | Val Acc: {val_acc:.4f}")
         if run is not None: 
             run.log({
