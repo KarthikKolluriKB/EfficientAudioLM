@@ -31,7 +31,7 @@ train:
   context_length: 384               # balance speed/quality on 3B
   gradient_accumulation_steps: 2    # effective batch ≈ 32
   grad_clip: 1.0
-  num_epochs: 8                     # with early stopping on dev-clean
+  num_epochs: 25                     # with early stopping on dev-clean
   num_workers: 8
   warmup_steps: 300                 # ~3% of ~8.9k total steps
   total_steps: 12000                # ceiling; loop uses epochs
@@ -70,7 +70,7 @@ early_stopping:
 data:
   dataset: speech_dataset
   file: datamodules/datasets.py:get_speech_dataset
-  train_data_path: data/train-clean-20.jsonl
+  train_data_path: data/train-clean-100.jsonl
   val_data_path: data/dev-clean.jsonl
   test_data_path: data/test-clean.jsonl
   train_split: train
@@ -90,8 +90,8 @@ log:
   use_wandb: true
   wandb_dir: ./wandb
   wandb_entity_name: ASRLLM
-  wandb_project_name: ASRLLM_llama_3B_20h
-  wandb_exp_name: exp_linear_proj_20h
+  wandb_project_name: ASRLLM_llama_3B_100h
+  wandb_exp_name: exp_linear_proj_100h
   log_dir: ./logs
-  log_filename: train_llama3b_linear_proj_20h.log
+  log_filename: train_llama3b_linear_proj_100h.log
   log_interval: 100
