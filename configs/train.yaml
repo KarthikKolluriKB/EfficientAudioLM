@@ -36,7 +36,7 @@ train:
   warmup_steps: 300                 # ~3% of ~8.9k total steps
   total_steps: 12000                # ceiling; loop uses epochs
   validation_interval: 1000         # validate each epoch via your loop
-  lr: 1.0e-4
+  lr: 3e-05
   weight_decay: 0.01
   gamma: 0.85
   seed: 42
@@ -57,14 +57,14 @@ train:
 
 scheduler: 
   name: cosine_with_warmup
-  total_training_steps: 65010
-  warmup_steps: 1950
+  num_warmup_steps: 1000
+  num_cycles: 0.5
 
 # Early Stopping
 early_stopping: 
   monitor: val/loss
   mode: min 
-  patience: 2 
+  patience: 5
   min_delta: 0.001
 
 data:
