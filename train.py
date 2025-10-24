@@ -1,4 +1,5 @@
 import os 
+import sys
 import time 
 import argparse 
 
@@ -14,11 +15,10 @@ from utils.wand_config import init_wandb
 from models.model import model_builder
 from datamodule.dataset import get_speech_dataset
 from utils.metrics import decode_texts_from_outputs, compute_wer
-from utils.train_utils import print_model_size, print_module_size, save_and_print_examples
-import sys
+from utils.train_utils import save_and_print_examples
 
-#from torchtnt.utils.early_stop_checker import EarlyStopChecker
-#from torch.optim.lr_scheduler import ReduceLROnPlateau
+from torchtnt.utils.early_stop_checker import EarlyStopChecker
+from transformers import get_cosine_schedule_with_warmup
 
 def evaluate(cfg, model, dataloader, device, tokenizer):
     """Evaluate the model on the given dataloader.
@@ -107,13 +107,6 @@ def evaluate(cfg, model, dataloader, device, tokenizer):
     
     return val_loss, val_acc, val_wer_score, val_word_acc, all_hyp_texts, all_ref_texts
 
-# Early Stopping 
-# early_stop = EarlyStopChecker(
-#     mode="min",
-#     patience=2,
-#     min_delta=0.001, 
-#     threshold_mode="abs"
-# )
 
 def main(): 
     """
@@ -142,6 +135,16 @@ def main():
     logger.info(f"Set random seed to {cfg.train.seed}")
     device = get_device() 
     logger.info(f"Device: {device}")
+
+    # Early Stopping 
+    early_stop = EarlyStopChecker(
+        mode=cfg.early_stopping.mode,
+        patience=cfg.early_stopping.patience,
+        min_delta=cfg.early_stopping.min_delta,
+        threshold_mode="abs"  
+    )
+    
+    logger.info(f"Early stopping configured with mode={cfg.early_stopping.mode}, patience={cfg.early_stopping.patience}, min_delta={cfg.early_stopping.min_delta}, threshold_mode=abs")
 
     # Model (ASR + LLM)
     model, tokenizer = model_builder(cfg.train, cfg.model)
@@ -194,6 +197,21 @@ def main():
     )
 
     logger.info(f"Validation dataset: {len(vald_ds)} samples, {len(val_dataloader)} batches")
+
+    # Calculate total training steps HERE
+    total_training_steps = cfg.train.num_epochs * len(train_dataloader)
+    logger.info(f"Total training steps: {total_training_steps}")
+    
+    # Initializing the LR Scheduler
+    num_warmup_steps = cfg.train.get("num_warmup_steps", 1000)
+    num_cycles = cfg.train.get("num_cycles", 0.5)
+    
+    lr_scheduler = get_cosine_schedule_with_warmup(
+            optimizer,
+            num_warmup_steps=num_warmup_steps,
+            num_training_steps=total_training_steps,
+            num_cycles=num_cycles
+        )
 
     # W&B init 
     run = None 
@@ -292,17 +310,21 @@ def main():
                     clip_grad_norm_(projector_params, cfg.train.grad_clip)
                 optimizer.step()
 
+            # Step the LR scheduler
+            lr_scheduler.step()
+
             if global_step % cfg.log.log_interval == 0: 
                 elapsed = time.time() - start_time
-                lr = optimizer.param_groups[0]["lr"]
-                logger.info(f"Epoch={epoch} | Step={global_step} | WER={batch_wer:.4f} | W_ACC={word_acc:.4f} | Loss={loss.item():.4f} | Acc={float(acc):.4f} | LR={lr:.6e} | Time={elapsed:.2f}s")
+                # Get current learning rate
+                current_lr = lr_scheduler.get_last_lr()[0]
+                logger.info(f"Epoch={epoch} | Step={global_step} | WER={batch_wer:.4f} | W_ACC={word_acc:.4f} | Loss={loss.item():.4f} | Acc={float(acc):.4f} | LR={current_lr:.6e} | Time={elapsed:.2f}s")
                 if run is not None: 
                     run.log({
                         "train/wer": batch_wer,
                         "train/word_acc": word_acc,
                         "train/loss": loss.item(),
                         "train/acc": acc,
-                        "train/lr": lr,
+                        "train/lr": current_lr,
                         "train/epoch": epoch,
                         "train/step": global_step,
                         "train/time_elapsed": elapsed
@@ -343,10 +365,10 @@ def main():
             save_projector(model, best_val_path, global_step)
             logger.info(f"New best model saved at step {global_step} to {best_val_path} with val_wer {best_val_wer:.4f}")
 
-        # early stopping 
-        # if early_stop.check(val_loss):
-        #     logger.info(f"Early stopping at epoch: {epoch} (patience={early_stop.patience})")
-        #     break
+        # Check early stopping
+        if early_stop.check(val_loss):
+            logger.info(f"Early stopping at epoch: {epoch} (patience={early_stop.patience})")
+            break
 
     # Final model checkpoint (for reference)
     final_path = os.path.join(cfg.train.output_dir, "projector_final.pt")
