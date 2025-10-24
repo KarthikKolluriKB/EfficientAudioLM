@@ -26,7 +26,7 @@ model:
 train:
   model_name: ASRLLM
   run_validation: true
-  batch_size: 8                   # micro-batch per GPU
+  batch_size: 16                   # micro-batch per GPU
   batching_strategy: packing
   context_length: 384               # balance speed/quality on 3B
   gradient_accumulation_steps: 2    # effective batch ≈ 32
@@ -91,7 +91,7 @@ log:
   wandb_dir: ./wandb
   wandb_entity_name: ASRLLM
   wandb_project_name: ASRLLM_llama_3B_100h
-  wandb_exp_name: exp_linear_proj_100h
+  wandb_exp_name: exp_linear_proj_100h_lr
   log_dir: ./logs
   log_filename: train_llama3b_linear_proj_100h.log
   log_interval: 100
