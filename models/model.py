@@ -20,7 +20,24 @@ logger = logging.getLogger(__name__)
 
 
 def model_builder(train_config, model_config, **kwargs):
-    """"""
+    """
+    Build ASR-LLM model components.
+
+    Model components:
+        1. Tokenizer
+        2. Projector
+        3. LLM
+        4. ASR-LLM model
+
+    Args: 
+        - train_config: training configuration
+        - model_config: model configuration
+        - kwargs: additional arguments
+    
+    Returns:
+        - model: ASR-LLM model
+        - tokenizer: tokenizer for LLM
+    """
     # 1. tokenizer
     tokenizer = setup_tokenizer(train_config, model_config, **kwargs)
 
@@ -94,6 +111,9 @@ def setup_projector(train_config, model_config, **kwargs):
     if model_config.projector == "linear":
         from models.projector import MelProjectorConcat
         projector = MelProjectorConcat(model_config)
+    elif model_config.projector == "patched-linear":
+        from models.projector import PatchedLinearProjectorV1
+        projector = PatchedLinearProjectorV1(model_config)
     elif model_config.projector == "cov1d-linear":
         from models.projector import EncoderProjectorCov1d
         projector = EncoderProjectorCov1d(model_config)
