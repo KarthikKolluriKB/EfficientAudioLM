@@ -17,7 +17,6 @@ model:
   # Patched projector core settings
   patch_length: 16        # length of each patch in frames; controls stride if non-overlapping
   patch_stride: 16        # stride between patches (default=patch_length for non-overlap)
-  llm_dim: 3072           # output vector size for each patch
 
   # Pre-patch normalization and regularization
   mel_input_norm: false   # per-bin mean/var normalization (set true if desired)
