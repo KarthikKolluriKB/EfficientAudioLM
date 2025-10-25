@@ -1,5 +1,6 @@
 import torch 
 import torch.nn as nn
+from torch.nn import functional as F
 
 
 class MelProjectorConcat(nn.Module):
@@ -86,7 +87,7 @@ class PatchedLinearProjectorV1(nn.Module):
         Input: [B, T, 80] mel spectrograms
         Output: [B, num_patches, llm_dim]
         """
-        B, T, F = x.shape
+        B, T, N_MELS = x.shape
         
         # Handle variable length by padding to multiple of patch_length
         remainder = T % self.patch_length
@@ -97,7 +98,7 @@ class PatchedLinearProjectorV1(nn.Module):
         
         # Create patches and project
         num_patches = T // self.patch_length
-        patches = x.view(B, num_patches, self.patch_length * F)
+        patches = x.view(B, num_patches, self.patch_length * N_MELS)
 
         x = self.projection(patches)
         return x
