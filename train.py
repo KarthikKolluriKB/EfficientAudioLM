@@ -137,12 +137,13 @@ def main():
     logger.info(f"Device: {device}")
 
     # Early Stopping 
-    early_stop = EarlyStopChecker(
-        mode=cfg.early_stopping.mode,
-        patience=cfg.early_stopping.patience,
-        min_delta=cfg.early_stopping.min_delta,
-        threshold_mode="abs"  
-    )
+    if not cfg.early_stopping.get("enabled", True):
+        early_stop = EarlyStopChecker(
+            mode=cfg.early_stopping.mode,
+            patience=cfg.early_stopping.patience,
+            min_delta=cfg.early_stopping.min_delta,
+            threshold_mode="abs"  
+        )
     
     logger.info(f"Early stopping configured with mode={cfg.early_stopping.mode}, patience={cfg.early_stopping.patience}, min_delta={cfg.early_stopping.min_delta}, threshold_mode=abs")
 
@@ -366,9 +367,11 @@ def main():
             logger.info(f"New best model saved at step {global_step} to {best_val_path} with val_wer {best_val_wer:.4f}")
 
         # Check early stopping
-        if early_stop.check(val_loss):
-            logger.info(f"Early stopping at epoch: {epoch} (patience={early_stop.patience})")
-            break
+        # Only if enabled in config
+        if cfg.early_stopping.enabled.get("enabled", True):
+            if early_stop.check(val_loss):
+                logger.info(f"Early stopping at epoch: {epoch} (patience={early_stop.patience})")
+                break
 
     # Final model checkpoint (for reference)
     final_path = os.path.join(cfg.train.output_dir, "projector_final.pt")
