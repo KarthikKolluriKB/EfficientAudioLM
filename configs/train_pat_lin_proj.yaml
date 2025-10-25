@@ -67,6 +67,7 @@ scheduler:
   use_hf: true                # set to false to use pure PyTorch
 
 early_stopping:
+  enabled: false
   monitor: val/loss
   mode: min
   patience: 5
