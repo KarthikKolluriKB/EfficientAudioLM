@@ -145,7 +145,7 @@ def main():
             threshold_mode="abs"  
         )
     
-    logger.info(f"Early stopping configured with mode={cfg.early_stopping.mode}, patience={cfg.early_stopping.patience}, min_delta={cfg.early_stopping.min_delta}, threshold_mode=abs")
+        logger.info(f"Early stopping configured with mode={cfg.early_stopping.mode}, patience={cfg.early_stopping.patience}, min_delta={cfg.early_stopping.min_delta}, threshold_mode=abs")
 
     # Model (ASR + LLM)
     model, tokenizer = model_builder(cfg.train, cfg.model)
