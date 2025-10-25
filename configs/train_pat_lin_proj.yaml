@@ -1,0 +1,103 @@
+model:
+  model_name: ASRLLM
+  file: models/model.py:ASRLLM
+  llm_model_name: llama3.2-3B
+  llm_model: meta-llama/Llama-3.2-3B
+  llm_model_path: null
+  llm_type: decoder_only
+  llm_dim: 3072
+
+  # Projector type (select your class here)
+  projector: patched-linear
+
+  # Mel front-end
+  mel_size: 80            # number of mel bins (F)
+  normalize: false        # legacy flag, prefer mel_input_norm below
+
+  # Patched projector core settings
+  patch_length: 16        # length of each patch in frames; controls stride if non-overlapping
+  patch_stride: 16        # stride between patches (default=patch_length for non-overlap)
+  llm_dim: 3072           # output vector size for each patch
+
+  # Pre-patch normalization and regularization
+  mel_input_norm: false   # per-bin mean/var normalization (set true if desired)
+  mel_dropout: 0.0        # dropout after projection; try 0.0–0.1
+
+  modal: audio
+  encoder_type: finetune
+
+train:
+  model_name: ASRLLM
+  run_validation: true
+  batch_size: 16                   
+  batching_strategy: packing
+  context_length: 384              
+  gradient_accumulation_steps: 2
+  grad_clip: 1.0
+  num_epochs: 25                  # increased for better convergence, early stopping enabled
+  num_workers: 8
+  warmup_steps: 1000              # matches scheduler; ~8% of 12k steps
+  total_steps: 12000
+  validation_interval: 1000
+  lr: 1e-4                        # lower for full model, increase for peptide/projector-only
+  weight_decay: 0.01
+  gamma: 0.85
+  seed: 42
+  use_fp16: false
+  mixed_precision: true
+  val_batch_size: 8
+
+  # Fine-tuning/Adapter/Quantization controls
+  use_peft: false
+  output_dir: output_llama3b_pat_lin_proj_100h_lrs/
+  freeze_layers: false
+  num_freeze_layers: 0
+  quantization: false
+  one_gpu: true
+  save_model: true
+  use_fast_kernels: false
+  freeze_llm: true     # train projector only (recommended baseline)
+  freeze_encoder: true
+
+scheduler:
+  type: cosine_with_warmup    # options: cosine_with_warmup, linear_warmup, polynomial_warmup, constant_warmup, etc.
+  num_warmup_steps: 1000      # number of steps for warmup
+  num_cycles: 0.5             # cosine cycles (ignored for linear/constant/polynomial)
+  lr_end: 1e-7                # final LR for polynomial (if used)
+  power: 1.0                  # decay shape for polynomial (if used)
+  use_hf: true                # set to false to use pure PyTorch
+
+early_stopping:
+  monitor: val/loss
+  mode: min
+  patience: 5
+  min_delta: 0.001
+
+data:
+  dataset: speech_dataset
+  file: datamodules/datasets.py:get_speech_dataset
+  train_data_path: data/train-clean-100.jsonl
+  val_data_path: data/dev-clean.jsonl
+  test_data_path: data/test-clean.jsonl
+  train_split: train
+  val_split: val
+  test_split: test
+  prompt: null
+  data_path: null
+  max_words: null
+  max_mel: null
+  fix_length_audio: -1
+  inference_mode: false
+  input_type: mel
+  mel_size: 80
+  normalize: false
+
+log:
+  use_wandb: true
+  wandb_dir: ./wandb
+  wandb_entity_name: ASRLLM
+  wandb_project_name: ASRLLM_llama_3B_100h
+  wandb_exp_name: exp_linear_proj_100h_lrs
+  log_dir: ./logs
+  log_filename: train_llama3b_linear_proj_100h_lrs.log
+  log_interval: 100
