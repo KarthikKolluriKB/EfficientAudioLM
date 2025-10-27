@@ -48,7 +48,7 @@ train:
 
   # Fine-tuning/Adapter/Quantization controls
   use_peft: false
-  output_dir: output_llama3b_patv1_lin_proj_100h_lrs/
+  output_dir: output_llama3b_patv1_lin_proj_100h_flr/
   freeze_layers: false
   num_freeze_layers: 0
   quantization: false
@@ -98,7 +98,7 @@ log:
   wandb_dir: ./wandb
   wandb_entity_name: ASRLLM
   wandb_project_name: ASRLLM_llama_3B_100h
-  wandb_exp_name: exp_patv1_lin_proj_100h_lrs
+  wandb_exp_name: exp_patv1_lin_proj_100h_flr
   log_dir: ./logs
-  log_filename: train_llama3b_patv1_lin_proj_100h_lrs.log
+  log_filename: train_llama3b_patv1_lin_proj_100h_flr.log
   log_interval: 100
