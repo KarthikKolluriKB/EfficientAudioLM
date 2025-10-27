@@ -204,15 +204,17 @@ def main():
     logger.info(f"Total training steps: {total_training_steps}")
     
     # Initializing the LR Scheduler
-    num_warmup_steps = cfg.train.get("num_warmup_steps", 1000)
-    num_cycles = cfg.train.get("num_cycles", 0.5)
-    
-    lr_scheduler = get_cosine_schedule_with_warmup(
-            optimizer,
-            num_warmup_steps=num_warmup_steps,
-            num_training_steps=total_training_steps,
-            num_cycles=num_cycles
-        )
+    if cfg.scheduler.get("enabled", True):
+        num_warmup_steps = cfg.train.get("num_warmup_steps", 1000)
+        num_cycles = cfg.train.get("num_cycles", 0.5)
+        
+        lr_scheduler = get_cosine_schedule_with_warmup(
+                optimizer,
+                num_warmup_steps=num_warmup_steps,
+                num_training_steps=total_training_steps,
+                num_cycles=num_cycles
+            )
+        logger.info(f"Using Cosine LR Scheduler with {num_warmup_steps} warmup steps and {num_cycles} cycles")
 
     # W&B init 
     run = None 
@@ -311,13 +313,17 @@ def main():
                     clip_grad_norm_(projector_params, cfg.train.grad_clip)
                 optimizer.step()
 
-            # Step the LR scheduler
-            lr_scheduler.step()
+            # Step the LR scheduler 
+            if cfg.scheduler.get("enabled", True):
+                lr_scheduler.step()
 
             if global_step % cfg.log.log_interval == 0: 
                 elapsed = time.time() - start_time
                 # Get current learning rate
-                current_lr = lr_scheduler.get_last_lr()[0]
+                if cfg.scheduler.get("enabled", True):
+                    current_lr = lr_scheduler.get_last_lr()[0]
+                else:
+                    current_lr = optimizer.param_groups[0]['lr']
                 logger.info(f"Epoch={epoch} | Step={global_step} | WER={batch_wer:.4f} | W_ACC={word_acc:.4f} | Loss={loss.item():.4f} | Acc={float(acc):.4f} | LR={current_lr:.6e} | Time={elapsed:.2f}s")
                 if run is not None: 
                     run.log({
@@ -332,7 +338,6 @@ def main():
                     }, step=global_step)
                 # Reset start time
                 start_time = time.time()
-
 
         # Validation at the end of each epoch
         val_loss, val_acc, val_wer_score, val_word_acc, all_hyp_texts, all_ref_texts = evaluate(cfg, model, val_dataloader, device, tokenizer=tokenizer)
