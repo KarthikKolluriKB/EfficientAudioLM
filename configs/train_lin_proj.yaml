@@ -9,7 +9,7 @@ model:
 
   # Projector
   projector: linear
-  mel_size: 80 # mel bins 
+  mel_size: 128 # mel bins 
   normalize: false
 
   # Patched projector settings
@@ -26,7 +26,7 @@ model:
 train:
   model_name: ASRLLM
   run_validation: true
-  batch_size: 16                   # micro-batch per GPU
+  batch_size: 8                   # micro-batch per GPU
   batching_strategy: packing
   context_length: 384               # balance speed/quality on 3B
   gradient_accumulation_steps: 2    # effective batch ≈ 32
@@ -36,7 +36,7 @@ train:
   warmup_steps: 300                 # ~3% of ~8.9k total steps
   total_steps: 12000                # ceiling; loop uses epochs
   validation_interval: 1000         # validate each epoch via your loop
-  lr: 3e-05
+  lr: 1.0e-4                     # projector-only fine-tuning
   weight_decay: 0.01
   gamma: 0.85
   seed: 42
@@ -56,6 +56,7 @@ train:
   freeze_encoder: true
 
 scheduler: 
+  enabled: false
   name: cosine_with_warmup
   num_warmup_steps: 1000
   num_cycles: 0.5
