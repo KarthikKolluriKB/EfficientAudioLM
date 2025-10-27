@@ -38,7 +38,7 @@ train:
   warmup_steps: 1000              # matches scheduler; ~8% of 12k steps
   total_steps: 12000
   validation_interval: 1000
-  lr: 1e-4                        # lower for full model, increase for peptide/projector-only
+  lr: 1.0e-4                     # lower for full model, increase for peptide/projector-only
   weight_decay: 0.01
   gamma: 0.85
   seed: 42
@@ -59,6 +59,7 @@ train:
   freeze_encoder: true
 
 scheduler:
+  enabled: false
   type: cosine_with_warmup    # options: cosine_with_warmup, linear_warmup, polynomial_warmup, constant_warmup, etc.
   num_warmup_steps: 1000      # number of steps for warmup
   num_cycles: 0.5             # cosine cycles (ignored for linear/constant/polynomial)
