@@ -26,7 +26,7 @@ model:
 train:
   model_name: ASRLLM
   run_validation: true
-  batch_size: 8                   # micro-batch per GPU
+  batch_size: 16                   # micro-batch per GPU
   batching_strategy: packing
   context_length: 384               # balance speed/quality on 3B
   gradient_accumulation_steps: 2    # effective batch ≈ 32
