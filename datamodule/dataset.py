@@ -36,10 +36,8 @@ class SpeechDatasetJsonl(torch.utils.data.Dataset):
         
         # self.data_list = contents
         self.IGNORE_INDEX = -100  # The default setting in CrossEntropyLoss
-        #self.prompt = dataset_config.get("prompt", None)
-        self.prompt = None
-        #self.mel_size = dataset_config.get("mel_size", 80) # 80 for whisper large v1 and v2, 128 for large v3
-        self.mel_size = 80
+        self.prompt = dataset_config.get("prompt", None)
+        self.mel_size = dataset_config.get("mel_size", 80) # 80 for whisper large v1 and v2, 128 for large v3
         # self.prompt_library = [
         #     "Begin by converting the spoken words into written text. ",
         #     "Can you transcribe the speech into a written format? ",
@@ -54,15 +52,10 @@ class SpeechDatasetJsonl(torch.utils.data.Dataset):
         # ]
         self.prompt_template = "USER: {}\n ASSISTANT:"
         self.answer_template = "{}"
-        #self.fix_length_audio = dataset_config.get("fix_length_audio", -1)
-        self.fix_length_audio = -1
-        #self.inference_mode = dataset_config.get("inference_mode", False)
-        self.inference_mode = False
-        #self.normalize = dataset_config.get("normalize", False)
-        # TODO: set normalize to False for whisper
-        self.normalize = False
-        #self.input_type = dataset_config.get("input_type", None)
-        self.input_type = "mel"
+        self.fix_length_audio = dataset_config.get("fix_length_audio", -1)
+        self.inference_mode = dataset_config.get("inference_mode", False)
+        self.normalize = dataset_config.get("normalize", False)
+        self.input_type = dataset_config.get("input_type", "mel")
         assert self.input_type in ["raw", "mel"], "input_type must be one of [raw, mel]" 
 
         self.data_list = []
