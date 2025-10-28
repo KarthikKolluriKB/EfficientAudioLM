@@ -85,7 +85,7 @@ data:
   fix_length_audio: -1
   inference_mode: false
   input_type: mel
-  mel_size: 80
+  mel_size: 128
   normalize: false
 
 log:
