@@ -92,6 +92,13 @@ data:
   input_type: mel
   mel_size: 80
   normalize: false
+    # pre-patch normalization and projector dropout
+  mel_input_norm: true  # e.g., log-mel + per-bin mean/var norm if true 
+  mel_stats_path: data/mel_stats/   # path to mel means/stds npy files
+  mel_mean_file: mel_means_train_100h.npy
+  mel_std_file: mel_stds_train_100h.npy
+  clamp_epsilon: 1e-8
+  verbose: true
 
 log:
   use_wandb: true
