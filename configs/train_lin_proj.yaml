@@ -16,8 +16,7 @@ model:
   mel_time_stride: 12    # tokens every 8 frames (controls sequence length)
   projector_ds_rate: 4  # each token sees 8*2=16 frames of context (receptive field)
 
-  # pre-patch normalization and projector dropout
-  mel_input_norm: false  # e.g., log-mel + per-bin mean/var norm if true 
+
   mel_dropout: 0.0   # dropout on projected tokens; try 0.0–0.1 if overfitting 
 
   modal: audio
@@ -87,7 +86,13 @@ data:
   input_type: mel
   mel_size: 128
   normalize: false
-
+  # pre-patch normalization and projector dropout
+  mel_input_norm: true  # e.g., log-mel + per-bin mean/var norm if true 
+  mel_stats_path: data/mel_stats/   # path to mel means/stds npy files
+  mel_mean_file: mel_means.npy
+  mel_std_file: mel_stds.npy
+  clamp_epsilon: 1e-8
+  verbose: true
 log:
   use_wandb: true
   wandb_dir: ./wandb

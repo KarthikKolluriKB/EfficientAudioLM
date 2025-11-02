@@ -1,24 +1,14 @@
-import os.path as osp
-import random 
 import json, yaml
 import copy 
 
 import numpy as np
-from scipy import signal
-import os.path as osp
 import random
-import json, yaml
-import copy
 
 import numpy as np
-from scipy import signal
 import soundfile as sf
 
 import torch
-import torchaudio
-from torch.utils.data import Dataset
 import whisper
-from utils.compute_utils import calculate_output_length_1d
 
 
 class SpeechDatasetJsonl(torch.utils.data.Dataset):
@@ -55,8 +45,20 @@ class SpeechDatasetJsonl(torch.utils.data.Dataset):
         self.fix_length_audio = dataset_config.get("fix_length_audio", -1)
         self.inference_mode = dataset_config.get("inference_mode", False)
         self.normalize = dataset_config.get("normalize", False)
+        self.mel_input_norm = dataset_config.get("mel_input_norm", False)
+        self.mel_stats_path = dataset_config.get("mel_stats_path", None)
+        self.clamp_epsilon = dataset_config.get("clamp_epsilon", 1e-8)
         self.input_type = dataset_config.get("input_type", "mel")
         assert self.input_type in ["raw", "mel"], "input_type must be one of [raw, mel]" 
+
+
+        # Loading the mean and std for normalization if provided
+        if self.mel_input_norm:
+            assert self.mel_stats_path is not None, "mel_stats_path must be provided if mel_input_norm is True"
+            mel_mean_file = dataset_config.get("mel_mean_file", "mel_means.npy")
+            mel_std_file = dataset_config.get("mel_std_file", "mel_stds.npy")
+            self.mel_means = torch.from_numpy(np.load(mel_mean_file)).float()
+            self.mel_stds = torch.from_numpy(np.load(mel_std_file)).float()
 
         self.data_list = []
         if split == "train":
@@ -114,6 +116,8 @@ class SpeechDatasetJsonl(torch.utils.data.Dataset):
             audio_raw = whisper.pad_or_trim(audio_raw)
             # audio_raw = np.concatenate((np.zeros(random.randint(0, 16000)), audio_raw, np.zeros(random.randint(0, 16000)))).astype(audio_raw.dtype)[:16000*30]
             audio_mel = whisper.log_mel_spectrogram(audio_raw, n_mels=self.mel_size).permute(1, 0)
+            if self.mel_input_norm: 
+                audio_mel = (audio_mel - self.mel_means) / (self.mel_stds + self.clamp_epsilon)
             audio_length = (audio_mel.shape[0] + 1) // 2  # ad-hoc for whisper for 2x downsample from mel to feats
             audio_length = audio_length // 5 # ad-hoc for 5x fc downsample
             # audio_length = calculate_output_length_1d(audio_length, 5, 5, 0) # ad-hoc for 5x cov1d downsample
