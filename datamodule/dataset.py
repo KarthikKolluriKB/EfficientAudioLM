@@ -57,6 +57,8 @@ class SpeechDatasetJsonl(torch.utils.data.Dataset):
             assert self.mel_stats_path is not None, "mel_stats_path must be provided if mel_input_norm is True"
             mel_mean_file = dataset_config.get("mel_mean_file", "mel_means.npy")
             mel_std_file = dataset_config.get("mel_std_file", "mel_stds.npy")
+            mel_mean_file = f"{self.mel_stats_path}/{mel_mean_file}"
+            mel_std_file = f"{self.mel_stats_path}/{mel_std_file}"
             self.mel_means = torch.from_numpy(np.load(mel_mean_file)).float()
             self.mel_stds = torch.from_numpy(np.load(mel_std_file)).float()
 
