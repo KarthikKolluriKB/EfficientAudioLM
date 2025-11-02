@@ -85,11 +85,11 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
     config_path = args.config_path
-    
+
     cfg = OmegaConf.load(config_path)
 
     compute_and_save_mel_stats(
-        train_jsonl_path=cfg.train_data_path,
+        train_jsonl_path=cfg.data.train_data_path,
         mel_size=cfg.data.mel_size,
         output_path=cfg.data.mel_stats_path,
         clamp_epsilon=cfg.data.clamp_epsilon,
