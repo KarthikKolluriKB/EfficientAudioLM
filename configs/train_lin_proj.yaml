@@ -9,7 +9,7 @@ model:
 
   # Projector
   projector: linear
-  mel_size: 128 # mel bins 
+  mel_size: 80 # mel bins
   normalize: false
 
   # Patched projector settings
@@ -44,7 +44,7 @@ train:
   val_batch_size: 8                # larger no-grad batches speed up eval
 
   use_peft: false
-  output_dir: output_llama3b_lin_proj_100h_lrs_no_es/
+  output_dir: output_llama3b_lin_proj_100h_flr_melstats/
   freeze_layers: false
   num_freeze_layers: 0
   quantization: false
@@ -84,7 +84,7 @@ data:
   fix_length_audio: -1
   inference_mode: false
   input_type: mel
-  mel_size: 128
+  mel_size: 80
   normalize: false
   # pre-patch normalization and projector dropout
   mel_input_norm: true  # e.g., log-mel + per-bin mean/var norm if true 
@@ -98,7 +98,8 @@ log:
   wandb_dir: ./wandb
   wandb_entity_name: ASRLLM
   wandb_project_name: ASRLLM_llama_3B_100h
-  wandb_exp_name: exp_linear_proj_100h_flr_128mb
+  wandb_exp_name: exp_linear_proj_100h_flr_melstats
   log_dir: ./logs
-  log_filename: train_llama3b_linear_proj_100h_flr_128mb.log
+  log_filename: train_llama3b_linear_proj_100h_flr_melstats.log
   log_interval: 100
+  
