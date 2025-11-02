@@ -71,7 +71,22 @@ def compute_and_save_mel_stats(
 
 if __name__ == "__main__":
 
-    cfg = OmegaConf.load("configs/train_lin_proj.yaml")
+    import argparse
+    parser = argparse.ArgumentParser(
+        description="Compute and save global mel spectrogram mean and std from training data."
+    )
+
+    parser.add_argument(
+        "--config_path",
+        type=str,
+        required=True,
+        help="Path to configuration file (YAML) containing data paths and parameters.",
+    )
+
+    args = parser.parse_args()
+    config_path = args.config_path
+    
+    cfg = OmegaConf.load(config_path)
 
     compute_and_save_mel_stats(
         train_jsonl_path=cfg.train_data_path,
