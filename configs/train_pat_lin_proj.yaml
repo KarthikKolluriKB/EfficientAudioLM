@@ -7,8 +7,11 @@ model:
   llm_type: decoder_only
   llm_dim: 3072
 
+  # hidden dim
+  hidden_dim: 1024
+
   # Projector type (select your class here)
-  projector: patched-linear
+  projector: patched-linear-v2
 
   # Mel front-end
   mel_size: 80            # number of mel bins (F)
@@ -16,11 +19,11 @@ model:
 
   # Patched projector core settings
   patch_length: 16        # length of each patch in frames; controls stride if non-overlapping
-  patch_stride: 16        # stride between patches (default=patch_length for non-overlap)
+  patch_stride: 8        # stride between patches (default=patch_length for non-overlap)
 
   # Pre-patch normalization and regularization
   mel_input_norm: false   # per-bin mean/var normalization (set true if desired)
-  mel_dropout: 0.0        # dropout after projection; try 0.0–0.1
+  mel_dropout: 0.1        # dropout after projection; try 0.0–0.1
 
   modal: audio
   encoder_type: finetune
