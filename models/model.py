@@ -191,7 +191,7 @@ class ASRLLM(nn.Module):
             # Q-former
             encoder_outputs = self.projector(audio_mel, audio_mel_post_mask) # [B, T_enc_proj, D_llm]
 
-        elif self.model_config.projector in ["linear", "patched-linear", "cov1d-linear"]:
+        elif self.model_config.projector in ["linear", "patched-linear", "patched-linear-v2", "cov1d-linear"]:
             # linear or conv1d + linear
             encoder_outputs = self.projector(audio_mel)  # [B, T_enc_proj, D_llm]
 
