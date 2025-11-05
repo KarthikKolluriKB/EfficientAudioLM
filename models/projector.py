@@ -102,6 +102,41 @@ class PatchedLinearProjectorV1(nn.Module):
 
         x = self.projection(patches)
         return x
+    
+
+class PatchedLinearProjectorV2(nn.Module):
+    def __init__(self, config):
+        super().__init__()
+        patch_size = config.patch_length * config.mel_size
+        hidden_dim = 1024  
+        self.patch_length = config.patch_length 
+        self.patch_stride = config.patch_stride
+
+        self.projection = nn.Sequential(
+            nn.Linear(patch_size, hidden_dim),
+            nn.GELU(),
+            nn.Linear(hidden_dim, config.llm_dim),
+            nn.Dropout(config.mel_dropout)
+        )
+        print(f"PatchedLinearProjectorV2: {patch_size} -> {hidden_dim} -> {config.llm_dim}")
+
+    def forward(self, x):
+        B, T, N_MELS = x.shape
+        remainder = T % self.patch_length
+        if remainder != 0:
+            pad_length = self.patch_length - remainder
+            x = F.pad(x, (0, 0, 0, pad_length), value=0.0)
+            T = x.shape[1]
+
+        num_patches = (T - self.patch_length) // self.patch_stride + 1
+        patches = []
+        for i in range(0, T - self.patch_length + 1, self.patch_stride):
+            patch = x[:, i:i+self.patch_length, :].reshape(B, -1)
+            patches.append(patch)
+        patches = torch.stack(patches, 1)
+
+        x = self.projection(patches)
+        return x
 
 class EncoderProjectorCov1d(nn.Module):
     def __init__(self, config):
