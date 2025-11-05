@@ -114,6 +114,9 @@ def setup_projector(train_config, model_config, **kwargs):
     elif model_config.projector == "patched-linear":
         from models.projector import PatchedLinearProjectorV1
         projector = PatchedLinearProjectorV1(model_config)
+    elif model_config.projector == "patched-linear-v2":
+        from models.projector import PatchedLinearProjectorV2
+        projector = PatchedLinearProjectorV2(model_config)
     elif model_config.projector == "cov1d-linear":
         from models.projector import EncoderProjectorCov1d
         projector = EncoderProjectorCov1d(model_config)
