@@ -51,7 +51,7 @@ train:
 
   # Fine-tuning/Adapter/Quantization controls
   use_peft: false
-  output_dir: output_llama3b_patv2_lin_proj_100h_flr_melstats/
+  output_dir: output_llama3b_patv2_lin_proj_100h_flr/
   freeze_layers: false
   num_freeze_layers: 0
   quantization: false
@@ -66,7 +66,7 @@ scheduler:
   type: cosine_with_warmup    # options: cosine_with_warmup, linear_warmup, polynomial_warmup, constant_warmup, etc.
   num_warmup_steps: 1000      # number of steps for warmup
   num_cycles: 0.5             # cosine cycles (ignored for linear/constant/polynomial)
-  lr_end: 1e-7                # final LR for polynomial (if used)
+  lr_end: 1.0e-7              # final LR for polynomial (if used)
   power: 1.0                  # decay shape for polynomial (if used)
   use_hf: true                # set to false to use pure PyTorch
 
@@ -108,7 +108,7 @@ log:
   wandb_dir: ./wandb
   wandb_entity_name: ASRLLM
   wandb_project_name: ASRLLM_llama_3B_100h
-  wandb_exp_name: exp_patv2_lin_proj_100h_flr_melstats
+  wandb_exp_name: exp_patv2_lin_proj_100h_flr
   log_dir: ./logs
-  log_filename: train_llama3b_patv2_lin_proj_100h_flr_melstats.log
+  log_filename: train_llama3b_patv2_lin_proj_100h_flr.log
   log_interval: 100
