@@ -137,7 +137,7 @@ def main():
     logger.info(f"Device: {device}")
 
     # Early Stopping 
-    if not cfg.early_stopping.get("enabled", True):
+    if cfg.early_stopping.get("enabled", False):
         early_stop = EarlyStopChecker(
             mode=cfg.early_stopping.mode,
             patience=cfg.early_stopping.patience,
@@ -167,7 +167,6 @@ def main():
     logger.info(f"Model initialized with {sum(p.numel() for p in model.parameters() if p.requires_grad)} trainable parameters")
 
     # Dataset and DataLoader
-    # FIXME: currently only support train dataset )
     split = cfg.data.get("train_split", cfg.data.get("test_split", "train"))
 
     train_ds = get_speech_dataset(cfg.data, tokenizer, split=split)
@@ -205,8 +204,8 @@ def main():
     
     # Initializing the LR Scheduler
     if cfg.scheduler.get("enabled", True):
-        num_warmup_steps = cfg.train.get("num_warmup_steps", 1000)
-        num_cycles = cfg.train.get("num_cycles", 0.5)
+        num_warmup_steps = cfg.scheduler.get("num_warmup_steps", 1000)
+        num_cycles = cfg.scheduler.get("num_cycles", 0.5)
         
         lr_scheduler = get_cosine_schedule_with_warmup(
                 optimizer,
