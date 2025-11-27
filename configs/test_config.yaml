@@ -1,24 +1,24 @@
 model:
   model_name: ASRLLM
   file: models/model.py:ASRLLM
-  llm_model_name: llama3.2-1B   
+  llm_model_name: llama3.2-1B
   llm_model: meta-llama/Llama-3.2-1B
   llm_model_path: null
   llm_type: decoder_only
   llm_dim: 2048
 
   # Projector
-  projector: linear
-  mel_size: 80 # mel bins 
-  normalize: false
+  projector: patched-linear-v2
+  mel_size: 80           # mel bins
 
   # Patched projector settings
-  mel_time_stride: 12    # tokens every 8 frames (controls sequence length)
-  projector_ds_rate: 4  # each token sees 8*2=16 frames of context (receptive field)
+  patch_length: 16       # frames per patch
+  patch_stride: 8        # stride for overlap
+  hidden_dim: 1024       # for MLP projector architecture
 
-  # pre-patch normalization and projector dropout
-  mel_input_norm: false  # e.g., log-mel + per-bin mean/var norm if true 
-  mel_dropout: 0.0   # dropout on projected tokens; try 0.0–0.1 if overfitting 
+  # Pre-patch normalization and projector dropout
+  mel_input_norm: false  # set true/false for experiment
+  mel_dropout: 0.0       # dropout on projected tokens
 
   modal: audio
   encoder_type: finetune
@@ -26,23 +26,23 @@ model:
 train:
   model_name: ASRLLM
   run_validation: true
-  batch_size: 2                   # micro-batch per GPU
+  batch_size: 2
   batching_strategy: packing
-  context_length: 256               # balance speed/quality on 1B
-  gradient_accumulation_steps: 2    # effective batch ≈ 32
+  context_length: 256
+  gradient_accumulation_steps: 2
   grad_clip: 1.0
-  num_epochs: 2                     # with early stopping on dev-clean
+  num_epochs: 2
   num_workers: 2
-  warmup_steps: 300                 # ~3% of ~8.9k total steps
-  total_steps: 12000                # ceiling; loop uses epochs
-  validation_interval: 1000         # validate each epoch via your loop
+  warmup_steps: 300
+  total_steps: 12000
+  validation_interval: 1000
   lr: 1.0e-4
   weight_decay: 0.01
   gamma: 0.85
   seed: 42
-  use_fp16: false                   # prefer bf16 on A6000
+  use_fp16: false
   mixed_precision: true
-  val_batch_size: 2               # larger no-grad batches speed up eval
+  val_batch_size: 2
 
   use_peft: false
   output_dir: test_outputs/
@@ -51,20 +51,19 @@ train:
   quantization: false
   one_gpu: true
   save_model: true
-  use_fast_kernels: false           # set SDPA in code
-  freeze_llm: true                  # projector-only
+  use_fast_kernels: false
+  freeze_llm: true         # projector-only
   freeze_encoder: true
 
-scheduler: 
+scheduler:
   name: cosine_with_warmup
   total_training_steps: 65010
   warmup_steps: 1950
 
-# Early Stopping
-early_stopping: 
+early_stopping:
   monitor: val/loss
-  mode: min 
-  patience: 2 
+  mode: min
+  patience: 2
   min_delta: 0.001
 
 data:
@@ -84,14 +83,14 @@ data:
   inference_mode: false
   input_type: mel
   mel_size: 80
-  normalize: false
+  mel_input_norm: false   # set true/false for experiment
 
 log:
   use_wandb: false
   wandb_dir: ./wandb
   wandb_entity_name: ASRLLM
   wandb_project_name: ASRLLM_llama_3B_20h
-  wandb_exp_name: exp_patched_12*3_proj
+  wandb_exp_name: exp_patched_v2_norm_ablation
   log_dir: ./logs
   log_filename: test.log
   log_interval: 50
