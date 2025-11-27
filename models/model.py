@@ -117,6 +117,9 @@ def setup_projector(train_config, model_config, **kwargs):
     elif model_config.projector == "patched-linear-v2":
         from models.projector import PatchedLinearProjectorV2
         projector = PatchedLinearProjectorV2(model_config)
+    elif model_config.projector == "patched-linear-v3":
+        from models.projector import PatchedLinearProjectorV3
+        projector = PatchedLinearProjectorV3(model_config)
     elif model_config.projector == "cov1d-linear":
         from models.projector import EncoderProjectorCov1d
         projector = EncoderProjectorCov1d(model_config)
@@ -191,7 +194,7 @@ class ASRLLM(nn.Module):
             # Q-former
             encoder_outputs = self.projector(audio_mel, audio_mel_post_mask) # [B, T_enc_proj, D_llm]
 
-        elif self.model_config.projector in ["linear", "patched-linear", "patched-linear-v2", "cov1d-linear"]:
+        elif self.model_config.projector in ["linear", "patched-linear", "patched-linear-v2", "patched-linear-v3",  "cov1d-linear"]:
             # linear or conv1d + linear
             encoder_outputs = self.projector(audio_mel)  # [B, T_enc_proj, D_llm]
 

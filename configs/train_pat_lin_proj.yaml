@@ -7,23 +7,21 @@ model:
   llm_type: decoder_only
   llm_dim: 3072
 
-  # hidden dim
-  hidden_dim: 1024
-
-  # Projector type (select your class here)
-  projector: patched-linear-v2
+  # Projector type
+  projector: patched-linear-v3
 
   # Mel front-end
   mel_size: 80            # number of mel bins (F)
-  normalize: false        # legacy flag, prefer mel_input_norm below
+  normalize: false        # legacy flag, use mel_input_norm below
 
-  # Patched projector core settings
-  patch_length: 16        # length of each patch in frames; controls stride if non-overlapping
-  patch_stride: 8        # stride between patches (default=patch_length for non-overlap)
+  # Patched projector core settings 
+  patch_length: 16        # ~160ms context window
+  patch_stride: 4         # CRITICAL CHANGE: 4x Overlap (Stride 4 / Length 16)
+                          # This redundancy compensates for the linear simplicity.
 
   # Pre-patch normalization and regularization
-  mel_input_norm: false   # per-bin mean/var normalization (set true if desired)
-  mel_dropout: 0.1        # dropout after projection; try 0.0–0.1
+  mel_input_norm: true    # CRITICAL CHANGE: Must be true for linear projectors!
+  mel_dropout: 0.0        # CHANGED: Linear layers don't need dropout usually.
 
   modal: audio
   encoder_type: finetune
@@ -36,12 +34,12 @@ train:
   context_length: 384              
   gradient_accumulation_steps: 2
   grad_clip: 1.0
-  num_epochs: 25                  # increased for better convergence, early stopping enabled
+  num_epochs: 50                  # Increased: Linear layers need more epochs to align perfectly
   num_workers: 8
-  warmup_steps: 1000              # matches scheduler; ~8% of 12k steps
-  total_steps: 12000
-  validation_interval: 1000
-  lr: 1.0e-4                     # lower for full model, increase for peptide/projector-only
+  warmup_steps: 1000              
+  total_steps: 20000              # Adjusted for longer training if needed
+  validation_interval: 500        # Check more often
+  lr: 3.0e-4                      # CHANGED: Slightly higher LR for linear alignment
   weight_decay: 0.01
   gamma: 0.85
   seed: 42
@@ -51,28 +49,27 @@ train:
 
   # Fine-tuning/Adapter/Quantization controls
   use_peft: false
-  output_dir: output_llama3b_patv2_lin_proj_100h_flr/
+  output_dir: output_llama3b_patv3_fuyu_audio_20h/
   freeze_layers: false
   num_freeze_layers: 0
   quantization: false
   one_gpu: true
   save_model: true
   use_fast_kernels: false
-  freeze_llm: true     # train projector only (recommended baseline)
-  freeze_encoder: true
+  freeze_llm: true     # train projector only (CORRECT)
+  freeze_encoder: true # (CORRECT)
 
 scheduler:
-  enabled: false
-  type: cosine_with_warmup    # options: cosine_with_warmup, linear_warmup, polynomial_warmup, constant_warmup, etc.
-  num_warmup_steps: 1000      # number of steps for warmup
-  num_cycles: 0.5             # cosine cycles (ignored for linear/constant/polynomial)
-  lr_end: 1.0e-7              # final LR for polynomial (if used)
-  power: 1.0                  # decay shape for polynomial (if used)
-  use_hf: true                # set to false to use pure PyTorch
+  enabled: true        
+  type: cosine_with_warmup    
+  num_warmup_steps: 1000      
+  num_cycles: 0.5             
+  lr_end: 1.0e-7              
+  use_hf: true                
 
 early_stopping:
-  enabled: false
-  monitor: val/loss
+  enabled: true        
+  monitor: val/loss    # Monitor loss or WER if available
   mode: min
   patience: 5
   min_delta: 0.001
@@ -80,7 +77,7 @@ early_stopping:
 data:
   dataset: speech_dataset
   file: datamodules/datasets.py:get_speech_dataset
-  train_data_path: data/train-clean-100.jsonl
+  train_data_path: data/train-clean-20.jsonl
   val_data_path: data/dev-clean.jsonl
   test_data_path: data/test-clean.jsonl
   train_split: train
@@ -95,11 +92,12 @@ data:
   input_type: mel
   mel_size: 80
   normalize: false
-    # pre-patch normalization and projector dropout
-  mel_input_norm: false  # e.g., log-mel + per-bin mean/var norm if true 
-  mel_stats_path: data/mel_stats/   # path to mel means/stds npy files
-  mel_mean_file: mel_means_train_100h.npy
-  mel_std_file: mel_stds_train_100h.npy
+  
+  # Mel normalization settings
+  mel_input_norm: true  
+  mel_stats_path: data/mel_stats/   
+  mel_mean_file: mel_means_train_20h.npy
+  mel_std_file: mel_stds_train_20h.npy
   clamp_epsilon: 1e-8
   verbose: true
 
@@ -107,8 +105,8 @@ log:
   use_wandb: true
   wandb_dir: ./wandb
   wandb_entity_name: ASRLLM
-  wandb_project_name: ASRLLM_llama_3B_100h
-  wandb_exp_name: exp_patv2_lin_proj_100h_flr
+  wandb_project_name: ASRLLM_llama_3B_20h
+  wandb_exp_name: exp_patv3_20h
   log_dir: ./logs
-  log_filename: train_llama3b_patv2_lin_proj_100h_flr.log
-  log_interval: 100
+  log_filename: train_llama3b_patv3_20h.log
+  log_interval: 50
