@@ -105,6 +105,10 @@ class PatchedLinearProjectorV1(nn.Module):
     
 
 class PatchedLinearProjectorV2(nn.Module):
+    """
+    Optimized V2 Projector: MLP + LayerNorm
+    Structure: Linear -> GELU -> Linear -> Dropout -> LayerNorm
+    """
     def __init__(self, config):
         super().__init__()
         patch_size = config.patch_length * config.mel_size
@@ -112,30 +116,53 @@ class PatchedLinearProjectorV2(nn.Module):
         self.patch_length = config.patch_length 
         self.patch_stride = config.patch_stride
 
+        # MLP Projection
         self.projection = nn.Sequential(
             nn.Linear(patch_size, hidden_dim),
             nn.GELU(),
             nn.Linear(hidden_dim, config.llm_dim),
             nn.Dropout(config.mel_dropout)
         )
-        print(f"PatchedLinearProjectorV2: {patch_size} -> {hidden_dim} -> {config.llm_dim}")
+        
+        # LayerNorm for stability
+        self.norm = nn.LayerNorm(config.llm_dim)
+        
+        print(f"PatchedLinearProjectorV2 (Optimized): {patch_size} -> {hidden_dim} -> {config.llm_dim}")
+        self._init_weights()
+
+    def _init_weights(self):
+        for m in self.modules():
+            if isinstance(m, nn.Linear):
+                nn.init.xavier_uniform_(m.weight)
+                if m.bias is not None:
+                    nn.init.zeros_(m.bias)
 
     def forward(self, x):
-        B, T, N_MELS = x.shape
+        """
+        x: (Batch, Time, Mel)
+        """
+        B, T, F_dim = x.shape
+        
+        # 1. Pad if needed
         remainder = T % self.patch_length
         if remainder != 0:
             pad_length = self.patch_length - remainder
             x = F.pad(x, (0, 0, 0, pad_length), value=0.0)
             T = x.shape[1]
 
-        num_patches = (T - self.patch_length) // self.patch_stride + 1
-        patches = []
-        for i in range(0, T - self.patch_length + 1, self.patch_stride):
-            patch = x[:, i:i+self.patch_length, :].reshape(B, -1)
-            patches.append(patch)
-        patches = torch.stack(patches, 1)
+        # 2. Optimized Patch Extraction (Unfold is faster than loop)
+        # x.unfold(dimension, size, step)
+        # Output: (B, Num_Patches, Mel, Patch_Len)
+        patches = x.unfold(1, self.patch_length, self.patch_stride)
+        
+        # Rearrange to (B, Num_Patches, Patch_Len * Mel)
+        patches = patches.permute(0, 1, 3, 2) 
+        patches = patches.reshape(B, patches.size(1), -1)
 
+        # 3. Project + Norm
         x = self.projection(patches)
+        x = self.norm(x)  # Final stability check
+        
         return x
     
 
