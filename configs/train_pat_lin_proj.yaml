@@ -34,7 +34,7 @@ train:
   context_length: 384              
   gradient_accumulation_steps: 4
   grad_clip: 1.0
-  num_epochs: 25                  # Increased: Linear layers need more epochs to align perfectly
+  num_epochs: 30                  # Increased: Linear layers need more epochs to align perfectly
   num_workers: 8
   warmup_steps: 1000              
   total_steps: 20000              # Adjusted for longer training if needed
@@ -49,7 +49,7 @@ train:
 
   # Fine-tuning/Adapter/Quantization controls
   use_peft: false
-  output_dir: output_llama3b_patv2_16x8_16bx4gas_2xhid_100h/
+  output_dir: output_llama3b_patv2_16x8_16bx4gas_2xhid_nes_100h/
   freeze_layers: false
   num_freeze_layers: 0
   quantization: false
@@ -68,7 +68,7 @@ scheduler:
   use_hf: true                
 
 early_stopping:
-  enabled: true        
+  enabled: false        
   monitor: val/loss    # Monitor loss or WER if available
   mode: min
   patience: 5
@@ -106,7 +106,7 @@ log:
   wandb_dir: ./wandb
   wandb_entity_name: ASRLLM
   wandb_project_name: ASRLLM_llama_3B_Patv2_100h
-  wandb_exp_name: exp_patv2_16x8_16bx4gas_2xhid_100h
+  wandb_exp_name: exp_patv2_16x8_16bx4gas_2xhid_nes_100h
   log_dir: ./logs
-  log_filename: train_llama3b_patv2_16x8_16bx4gas_2xhid_100h.log
+  log_filename: train_llama3b_patv2_16x8_16bx4gas_2xhid_nes_100h.log
   log_interval: 50
