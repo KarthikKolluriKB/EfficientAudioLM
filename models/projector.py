@@ -112,7 +112,7 @@ class PatchedLinearProjectorV2(nn.Module):
     def __init__(self, config):
         super().__init__()
         patch_size = config.patch_length * config.mel_size
-        hidden_dim = 2048  
+        hidden_dim = 1024 
         self.patch_length = config.patch_length 
         self.patch_stride = config.patch_stride
 

@@ -15,8 +15,8 @@ model:
   normalize: false        # legacy flag, use mel_input_norm below
 
   # Patched projector core settings 
-  patch_length: 16        # ~160ms context window
-  patch_stride: 8         # CRITICAL CHANGE: 4x Overlap (Stride 4 / Length 16)
+  patch_length: 32        # ~160ms context window
+  patch_stride: 16        # CRITICAL CHANGE: 2x Overlap (Stride 16 / Length 32)
                           # This redundancy compensates for the linear simplicity.
 
   # Pre-patch normalization and regularization
@@ -49,7 +49,7 @@ train:
 
   # Fine-tuning/Adapter/Quantization controls
   use_peft: false
-  output_dir: output_llama3b_patv2_16x8_16bx4gas_2xhid_nes_100h/
+  output_dir: output_llama3b_patv2_32x16_16bx4gas_100h/
   freeze_layers: false
   num_freeze_layers: 0
   quantization: false
@@ -68,10 +68,10 @@ scheduler:
   use_hf: true                
 
 early_stopping:
-  enabled: false        
+  enabled: true      
   monitor: val/loss    # Monitor loss or WER if available
   mode: min
-  patience: 5
+  patience: 10
   min_delta: 0.001
 
 data:
@@ -106,7 +106,7 @@ log:
   wandb_dir: ./wandb
   wandb_entity_name: ASRLLM
   wandb_project_name: ASRLLM_llama_3B_Patv2_100h
-  wandb_exp_name: exp_patv2_16x8_16bx4gas_2xhid_nes_100h
+  wandb_exp_name: exp_patv2_32x16_16bx4gas_100h
   log_dir: ./logs
-  log_filename: train_llama3b_patv2_16x8_16bx4gas_2xhid_nes_100h.log
+  log_filename: train_llama3b_patv2_32x16_16bx4gas_100h.log
   log_interval: 50
