@@ -112,7 +112,7 @@ class PatchedLinearProjectorV2(nn.Module):
     def __init__(self, config):
         super().__init__()
         patch_size = config.patch_length * config.mel_size
-        hidden_dim = 1024 
+        hidden_dim = getattr(config, "hidden_dim", 1024) 
         self.patch_length = config.patch_length 
         self.patch_stride = config.patch_stride
 
@@ -165,11 +165,95 @@ class PatchedLinearProjectorV2(nn.Module):
         
         return x
 
-class PatchedLinearProjectorV3(nn.Module):
+class ContextAwareProjector(nn.Module):
     """
-    Placeholder for future Patched Linear Projector V3 implementation.
+    Context-Aware Projector: Utilizes neighboring patches for richer context.
+    
+    Structure: For each patch at time t, concatenate patches at t-1, t, t+1
+    before projection. This provides temporal context to the model.
+
+    Args:
+        config: Configuration object with attributes:
+            - patch_length: Length of each patch in frames (e.g., 16)
+            - patch_stride: Stride between patches (e.g., 8)
+            - mel_size: Number of mel frequency bins (e.g., 80)
+            - llm_dim: Dimension of the output LLM embeddings (e.g., 3072)
+    Input:
+        x: Tensor of shape [B, T, 80] representing mel spectrograms
+
+    Output:
+        Tensor of shape [B, num_patches, llm_dim] representing projected patches with context
     """    
-    pass
+    def __init__(self, config):
+        super().__init__()
+        self.patch_length = config.patch_length 
+        self.patch_stride = config.patch_stride
+        
+        # Standard patch dim
+        raw_patch_dim = config.patch_length * config.mel_size
+        
+        # Triple the context by concatenating neighboring patches
+        context_dim = raw_patch_dim * 3 
+        
+        # Use Wide Hidden Dim (e.g., 2048) to handle the extra info
+        hidden_dim = getattr(config, "hidden_dim", 2048) 
+
+        # MLP Projection (Deep & Wide)
+        self.projection = nn.Sequential(
+            nn.Linear(context_dim, hidden_dim),  # Compresses 3x context
+            nn.GELU(),
+            nn.Dropout(config.mel_dropout),
+            nn.Linear(hidden_dim, config.llm_dim)
+        )
+        
+        self.norm = nn.LayerNorm(config.llm_dim)
+        
+        print(f"ProjectorV3: {context_dim} -> {hidden_dim} -> {config.llm_dim}")
+        self._init_weights()
+
+    def _init_weights(self):
+        for m in self.modules():
+            if isinstance(m, nn.Linear):
+                nn.init.xavier_uniform_(m.weight)
+                if m.bias is not None:
+                    nn.init.zeros_(m.bias)
+
+
+    def forward(self, x):
+        B, T, F_dim = x.shape
+        
+        # 1. Pad for patching
+        remainder = T % self.patch_length
+        if remainder != 0:
+            pad_length = self.patch_length - remainder
+            x = F.pad(x, (0, 0, 0, pad_length), value=0.0)
+            T = x.shape[1]
+
+        # 2. Extract Patches
+        # Shape: (B, Num_Patches, raw_patch_dim)
+        patches = x.unfold(1, self.patch_length, self.patch_stride)
+        patches = patches.permute(0, 1, 3, 2).reshape(B, -1, self.patch_length * F_dim)
+        
+        # 3. Create Context Windows [t-1, t, t+1]
+        # Padding for boundaries (so t=0 has a 'zero' t-1)
+        # Pad 1 patch left and 1 patch right
+        # (B, Num_Patches + 2, D)
+        padded_patches = F.pad(patches, (0, 0, 1, 1), value=0.0) 
+        
+        # Unfold along the 'patches' dimension to get window of 3
+        # (B, Num_Patches, D, 3)
+        context_windows = padded_patches.unfold(1, 3, 1) 
+        
+        # Flatten the context: (B, Num_Patches, 3*D)
+        # We want [t-1, t, t+1] concatenated
+        B_new, N_new, D, Window = context_windows.shape
+        context_input = context_windows.permute(0, 1, 3, 2).reshape(B_new, N_new, D * Window)
+
+        # 4. Project
+        x = self.projection(context_input)
+        x = self.norm(x)
+        
+        return x
 
 
 class EncoderProjectorCov1d(nn.Module):
