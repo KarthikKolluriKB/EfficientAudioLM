@@ -164,73 +164,13 @@ class PatchedLinearProjectorV2(nn.Module):
         x = self.norm(x)  # Final stability check
         
         return x
-    
 
 class PatchedLinearProjectorV3(nn.Module):
     """
-    Patched Linear Projector V3 (Fuyu-Style) for mel spectrograms.  
-    Splits the input mel spectrogram into overlapping patches of fixed length along the time dimension, 
-    and applies a linear projection followed by LayerNorm to each patch to map it to the desired llm_dim.
+    Placeholder for future Patched Linear Projector V3 implementation.
+    """    
+    pass
 
-    Args:
-        config: Configuration object with attributes:
-            - patch_length: Length of each patch in frames (e.g., 16)
-            - patch_stride: Stride between patches in frames (e.g., 8)  
-            - mel_size: Number of mel frequency bins (e.g., 80)
-            - llm_dim: Dimension of the output LLM embeddings (e.g., 3072)
-    """
-    def __init__(self, config):
-        super().__init__()
-        patch_size = config.patch_length * config.mel_size
-        
-        self.patch_length = config.patch_length 
-        self.patch_stride = config.patch_stride
-
-        # Fuyu-Style: Single Linear Layer + LayerNorm
-        # Direct projection: patch_size -> llm_dim
-        self.projection = nn.Linear(patch_size, config.llm_dim)
-        
-        # Critical for encoder-free training stability
-        self.norm = nn.LayerNorm(config.llm_dim)
-        
-        # Initialize weights properly (Xavier)
-        self._init_weights()
-
-        print(f"PatchedLinearProjectorV3 (Fuyu-Style): {patch_size} -> {config.llm_dim} (Linear+LN)")
-
-    def _init_weights(self):
-        nn.init.xavier_uniform_(self.projection.weight)
-        if self.projection.bias is not None:
-            nn.init.zeros_(self.projection.bias)
-
-    def forward(self, x):
-        B, T, N_MELS = x.shape
-        
-        # 1. Padding Logic (Same as V2)
-        remainder = T % self.patch_length
-        if remainder != 0:
-            pad_length = self.patch_length - remainder
-            x = F.pad(x, (0, 0, 0, pad_length), value=0.0)
-            T = x.shape[1]
-
-        # 2. Patch Extraction Logic (Same as V2)
-        # Using the exact loop structure from V2 for consistency
-        patches = []
-        for i in range(0, T - self.patch_length + 1, self.patch_stride):
-            patch = x[:, i:i+self.patch_length, :].reshape(B, -1)
-            patches.append(patch)
-        
-        if len(patches) == 0:
-             # Safety for very short audio
-             return torch.zeros(B, 0, self.projection.out_features, device=x.device)
-
-        patches = torch.stack(patches, 1)
-
-        # 3. Projection (Linear -> Norm)
-        x = self.projection(patches)
-        x = self.norm(x)
-        
-        return x
 
 class EncoderProjectorCov1d(nn.Module):
     def __init__(self, config):
