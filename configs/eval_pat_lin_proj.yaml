@@ -108,4 +108,4 @@ log:
   wandb_dir: ./wandb
   wandb_entity_name: ASRLLM_EVALS
   wandb_project_name: Evals_ASRLLM_llama3.2-3B
-  wandb_exp_name: eval_patv2_lin_proj_100h_flr
+  wandb_exp_name: eval_patv2_lin_proj_16x8_16bx4gas_100h
