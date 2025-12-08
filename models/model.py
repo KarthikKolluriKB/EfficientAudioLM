@@ -120,6 +120,9 @@ def setup_projector(train_config, model_config, **kwargs):
     elif model_config.projector == "context-aware":
         from models.projector import ContextAwareProjector
         projector = ContextAwareProjector(model_config)
+    elif model_config.projector == "context-aware-glu":
+        from models.projector import ContextAwareProjectorGLU
+        projector = ContextAwareProjectorGLU(model_config)
     elif model_config.projector == "cov1d-linear":
         from models.projector import EncoderProjectorCov1d
         projector = EncoderProjectorCov1d(model_config)
@@ -194,7 +197,7 @@ class ASRLLM(nn.Module):
             # Q-former
             encoder_outputs = self.projector(audio_mel, audio_mel_post_mask) # [B, T_enc_proj, D_llm]
 
-        elif self.model_config.projector in ["linear", "patched-linear", "patched-linear-v2", "context-aware",  "cov1d-linear"]:
+        elif self.model_config.projector in ["linear", "patched-linear", "patched-linear-v2", "context-aware", "context-aware-glu", "cov1d-linear"]:
             # linear or conv1d + linear
             encoder_outputs = self.projector(audio_mel)  # [B, T_enc_proj, D_llm]
 

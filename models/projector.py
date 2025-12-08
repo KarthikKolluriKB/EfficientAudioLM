@@ -256,6 +256,68 @@ class ContextAwareProjector(nn.Module):
         return x
 
 
+class ContextAwareProjectorGLU(nn.Module):
+    """
+    Context-Aware Projector : Uses GLU (Gated Linear Unit) for smarter context filtering.
+    """
+    def __init__(self, config):
+        super().__init__()
+        self.patch_length = config.patch_length 
+        self.patch_stride = config.patch_stride
+        
+        # Standard patch dim
+        raw_patch_dim = config.patch_length * config.mel_size
+        
+        # Triple the context
+        context_dim = raw_patch_dim * 3 
+        
+        # Hidden dim
+        hidden_dim = getattr(config, "hidden_dim", 2048) 
+
+        # GLU Projection Logic
+        # 1. Project to 2 * hidden_dim (because GLU consumes half for gating)
+        # 2. Apply GLU (outputs hidden_dim)
+        # 3. Project to llm_dim
+        self.projection = nn.Sequential(
+            nn.Linear(context_dim, hidden_dim * 2), # double width for GLU
+            nn.GLU(dim=-1),                         # GLU activation
+            nn.Dropout(config.mel_dropout),
+            nn.Linear(hidden_dim, config.llm_dim)
+        )
+        
+        self.norm = nn.LayerNorm(config.llm_dim)
+        
+        print(f"ContextAwareProjectorGLU: {context_dim} -> GLU({hidden_dim*2}->{hidden_dim}) -> {config.llm_dim}")
+        self._init_weights()
+
+    def _init_weights(self):
+        for m in self.modules():
+            if isinstance(m, nn.Linear):
+                nn.init.xavier_uniform_(m.weight)
+                if m.bias is not None:
+                    nn.init.zeros_(m.bias)
+
+    def forward(self, x):
+        B, T, F_dim = x.shape
+        remainder = T % self.patch_length
+        if remainder != 0:
+            pad_length = self.patch_length - remainder
+            x = F.pad(x, (0, 0, 0, pad_length), value=0.0)
+            T = x.shape[1]
+
+        patches = x.unfold(1, self.patch_length, self.patch_stride)
+        patches = patches.permute(0, 1, 3, 2).reshape(B, -1, self.patch_length * F_dim)
+        
+        padded_patches = F.pad(patches, (0, 0, 1, 1), value=0.0) 
+        context_windows = padded_patches.unfold(1, 3, 1) 
+        B_new, N_new, D, Window = context_windows.shape
+        context_input = context_windows.permute(0, 1, 3, 2).reshape(B_new, N_new, D * Window)
+
+        x = self.projection(context_input)
+        x = self.norm(x)
+        return x
+
+
 class EncoderProjectorCov1d(nn.Module):
     def __init__(self, config):
         super().__init__()
