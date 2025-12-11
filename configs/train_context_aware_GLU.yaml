@@ -30,10 +30,10 @@ model:
 train:
   model_name: ASRLLM
   run_validation: true
-  batch_size: 16
+  batch_size: 8
   batching_strategy: packing
   context_length: 384
-  gradient_accumulation_steps: 4
+  gradient_accumulation_steps: 8
   grad_clip: 1.0
   num_epochs: 30
   num_workers: 8
