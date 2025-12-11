@@ -269,7 +269,7 @@ class ContextAwareProjectorGLU(nn.Module):
         raw_patch_dim = config.patch_length * config.mel_size
         
         # Triple the context
-        context_dim = raw_patch_dim * 3 
+        context_dim = raw_patch_dim * 5 # Using 5 patches for richer context 
         
         # Hidden dim
         hidden_dim = getattr(config, "hidden_dim", 2048) 
@@ -299,17 +299,26 @@ class ContextAwareProjectorGLU(nn.Module):
 
     def forward(self, x):
         B, T, F_dim = x.shape
+        
+        # Pad for patching
         remainder = T % self.patch_length
         if remainder != 0:
             pad_length = self.patch_length - remainder
             x = F.pad(x, (0, 0, 0, pad_length), value=0.0)
             T = x.shape[1]
 
+        # Extract Patches
+        # Shape: (B, Num_Patches, raw_patch_dim)
         patches = x.unfold(1, self.patch_length, self.patch_stride)
         patches = patches.permute(0, 1, 3, 2).reshape(B, -1, self.patch_length * F_dim)
         
-        padded_patches = F.pad(patches, (0, 0, 1, 1), value=0.0) 
-        context_windows = padded_patches.unfold(1, 3, 1) 
+        # Create Context Windows [t-2, t-1, t, t+1, t+2]
+        # Pad 2 patches left and 2 patches right
+        padded_patches = F.pad(patches, (0, 0, 2, 2), value=0.0) 
+        # Window size 5
+        context_windows = padded_patches.unfold(1, 5, 1) 
+
+        # Flatten the context: (B, Num_Patches, 5*D)
         B_new, N_new, D, Window = context_windows.shape
         context_input = context_windows.permute(0, 1, 3, 2).reshape(B_new, N_new, D * Window)
 
