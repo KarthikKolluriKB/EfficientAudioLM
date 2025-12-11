@@ -30,13 +30,13 @@ model:
 train:
   model_name: ASRLLM
   run_validation: true
-  batch_size: 16
+  batch_size: 8
   batching_strategy: packing
   context_length: 384
-  gradient_accumulation_steps: 2
+  gradient_accumulation_steps: 1
   grad_clip: 1.0
-  num_epochs: 30
-  num_workers: 8
+  num_epochs: 1
+  num_workers: 1
   warmup_steps: 1000
   total_steps: 20000
   validation_interval: 500
@@ -46,7 +46,7 @@ train:
   seed: 42
   use_fp16: false
   mixed_precision: true
-  val_batch_size: 8
+  val_batch_size: 1
 
   # Fine-tuning/Adapter/Quantization controls
   use_peft: false
