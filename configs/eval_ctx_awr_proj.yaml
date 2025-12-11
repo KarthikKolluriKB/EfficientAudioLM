@@ -1,0 +1,115 @@
+model:
+  model_name: ASRLLM
+  file: models/model.py:ASRLLM
+  llm_model_name: llama3.2-3B
+  llm_model: meta-llama/Llama-3.2-3B
+  llm_model_path: null
+  llm_type: decoder_only
+  llm_dim: 3072
+
+  # Projector type
+  projector: context-aware
+
+
+  hidden_dim: 2048        # hidden dimension for context-aware projector
+
+  # Mel front-end
+  mel_size: 80            # number of mel bins (F)
+  normalize: false        # legacy flag, use mel_input_norm below
+
+  # Patched projector core settings 
+  patch_length: 16        # ~160ms context window
+  patch_stride: 8        # CRITICAL CHANGE: 2x Overlap (Stride 16 / Length 32)
+                          # This redundancy compensates for the linear simplicity.
+
+  # Pre-patch normalization and regularization
+  mel_input_norm: true    # CRITICAL CHANGE: Must be true for linear projectors!
+  mel_dropout: 0.1        # CHANGED: Linear layers don't need dropout usually.
+
+  modal: audio
+  encoder_type: finetune
+
+train:
+  model_name: ASRLLM
+  run_validation: true
+  batch_size: 16                  
+  batching_strategy: packing
+  context_length: 384              
+  gradient_accumulation_steps: 4
+  grad_clip: 1.0
+  num_epochs: 30                  # Increased: Linear layers need more epochs to align perfectly
+  num_workers: 8
+  warmup_steps: 1000              
+  total_steps: 20000              # Adjusted for longer training if needed
+  validation_interval: 500        # Check more often
+  lr: 3.0e-4                      # CHANGED: Slightly higher LR for linear alignment
+  weight_decay: 0.01
+  gamma: 0.85
+  seed: 42
+  use_fp16: false
+  mixed_precision: true
+  val_batch_size: 8
+
+  # Fine-tuning/Adapter/Quantization controls
+  use_peft: false
+  output_dir: eval_llama3b_cxtaw_proj_16x8_16bx4gas_100h/
+  freeze_layers: false
+  num_freeze_layers: 0
+  quantization: false
+  one_gpu: true
+  save_model: true
+  use_fast_kernels: false
+  freeze_llm: true     # train projector only (CORRECT)
+  freeze_encoder: true # (CORRECT)
+
+scheduler:
+  enabled: true        
+  type: cosine_with_warmup    
+  num_warmup_steps: 1000      
+  num_cycles: 0.5             
+  lr_end: 1.0e-7              
+  use_hf: true                
+
+early_stopping:
+  enabled: true      
+  monitor: val/loss    # Monitor loss or WER if available
+  mode: min
+  patience: 10
+  min_delta: 0.001
+
+data:
+  dataset: speech_dataset
+  file: datamodules/datasets.py:get_speech_dataset
+  train_data_path: data/train-clean-100.jsonl
+  val_data_path: data/dev-clean.jsonl
+  test_data_path: data/test-clean.jsonl
+  train_split: train
+  val_split: val
+  test_split: test
+  prompt: null
+  data_path: null
+  max_words: null
+  max_mel: null
+  fix_length_audio: -1
+  inference_mode: false
+  input_type: mel
+  mel_size: 80
+  normalize: false
+  
+  # Mel normalization settings
+  mel_input_norm: true  
+  mel_stats_path: data/mel_stats/   
+  mel_mean_file: mel_means_train_100h.npy
+  mel_std_file: mel_stds_train_100h.npy
+  clamp_epsilon: 1e-8
+  verbose: true
+
+log:
+  use_wandb: true
+  wandb_dir: ./wandb
+  wandb_entity_name: ASRLLM
+  wandb_project_name: ASRLLM_llama_3B_Patv2_100h
+  wandb_exp_name: exp_cxtaw_proj_16x8_16bx4gas_100h
+  log_dir: ./logs
+  log_filename: train_llama3b_cxtaw_proj_16x8_16bx4gas_100h.log
+  log_interval: 50
