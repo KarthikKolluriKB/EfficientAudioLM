@@ -80,7 +80,7 @@ early_stopping:
 data:
   dataset: speech_dataset
   file: datamodules/datasets.py:get_speech_dataset
-  train_data_path: data/train-clean-50h.jsonl
+  train_data_path: data/train-clean-50.jsonl
   val_data_path: data/dev-clean.jsonl
   test_data_path: data/test-clean.jsonl
   train_split: train
