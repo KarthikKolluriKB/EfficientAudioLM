@@ -57,6 +57,10 @@ class SpeechDatasetJsonl(torch.utils.data.Dataset):
         self.mel_stats_path = dataset_config.get("mel_stats_path", None)
         self.clamp_epsilon = dataset_config.get("clamp_epsilon", 1e-8)
 
+        # mfcc stats
+        self.mfcc_input_norm = dataset_config.get("mfcc_input_norm", False)
+        self.mfcc_stats_path = dataset_config.get("mfcc_stats_path", None)
+
         # Loading normalization stats if provided
         if self.mel_input_norm:
             assert self.mel_stats_path is not None
@@ -66,6 +70,16 @@ class SpeechDatasetJsonl(torch.utils.data.Dataset):
             mel_std_file = f"{self.mel_stats_path}/{mel_std_file}"
             self.mel_means = torch.from_numpy(np.load(mel_mean_file)).float()
             self.mel_stds = torch.from_numpy(np.load(mel_std_file)).float()
+
+        # MFCC normalization stats
+        if self.mfcc_input_norm:
+            assert self.mfcc_stats_path is not None
+            mfcc_mean_file = dataset_config.get("mfcc_mean_file", "mfcc_means.npy")
+            mfcc_std_file = dataset_config.get("mfcc_std_file", "mfcc_stds.npy")
+            mfcc_mean_file = f"{self.mfcc_stats_path}/{mfcc_mean_file}"
+            mfcc_std_file = f"{self.mfcc_stats_path}/{mfcc_std_file}"
+            self.mfcc_means = torch.from_numpy(np.load(mfcc_mean_file)).float()
+            self.mfcc_stds = torch.from_numpy(np.load(mfcc_std_file)).float()
 
         # Load dataset from jsonl files
         self.data_list = []
@@ -270,6 +284,10 @@ class SpeechDatasetJsonl(torch.utils.data.Dataset):
              
             # Extract MFCC features
             audio_mel = self.extract_mfcc(audio_raw)
+
+            # Apply normalization if enabled
+            if self.mfcc_input_norm:
+                audio_mel = (audio_mel - self.mfcc_means) / (self.mfcc_stds + self.clamp_epsilon)
 
             # Calculate audio length for your projector
             audio_length = self.calculate_audio_length(audio_mel.shape[0])
