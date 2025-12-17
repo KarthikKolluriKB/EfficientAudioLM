@@ -9,13 +9,13 @@ model:
 
   # Projector type
   projector: context-aware-glu
-
   context_size: 3  # Number of patches in context window
 
   hidden_dim: 2048
 
-  # Mel front-end
-  mel_size: 80
+  # Feature front-end
+  mel_size: 80      # Keep for compatibility
+  n_mfcc: 40        # MFCC size
   normalize: false
 
   # Patched projector core settings 
@@ -39,7 +39,6 @@ train:
   grad_clip: 1.0
   num_epochs: 15
   num_workers: 8
-  warmup_steps: 1000
   total_steps: 11000
   validation_interval: 350
   lr: 2.0e-4  
@@ -52,7 +51,7 @@ train:
 
   # Fine-tuning/Adapter/Quantization controls
   use_peft: false
-  output_dir: output_llama3b_3ctx_mel_norm_50h/ 
+  output_dir: output_llama3b_3ctx_mfcc_norm_50h/  
   freeze_layers: false
   num_freeze_layers: 0
   quantization: false
@@ -65,7 +64,7 @@ train:
 scheduler:
   enabled: true
   type: cosine_with_warmup
-  num_warmup_steps: 336
+  num_warmup_steps: 336  
   num_cycles: 0.5
   lr_end: 1.0e-7
   use_hf: true
@@ -92,15 +91,27 @@ data:
   max_mel: null
   fix_length_audio: -1
   inference_mode: false
-  input_type: mel
-  mel_size: 80
+  
+  # MFCC feature settings
+  input_type: mfcc  # MFCC input
+  mel_size: 80      # Keep for compatibility
+  n_mfcc: 40        # MFCC coefficients
+  
+  # Audio processing parameters (for librosa)
+  sample_rate: 16000   
+  n_fft: 400           
+  hop_length: 160      
+  win_length: 400      
+  fmin: 0              
+  fmax: 8000           
+  
   normalize: false
   
-  # Mel normalization settings
+  # MFCC normalization settings
   mel_input_norm: true
-  mel_stats_path: data/mel_stats/
-  mel_mean_file: mel_means_train_50h.npy
-  mel_std_file: mel_stds_train_50h.npy
+  mel_stats_path: data/mfcc_stats/  
+  mfcc_mean_file: mfcc_means_train_50h.npy  
+  mfcc_std_file: mfcc_stds_train_50h.npy    
   clamp_epsilon: 1e-8
   verbose: true
 
@@ -109,7 +120,7 @@ log:
   wandb_dir: ./wandb
   wandb_entity_name: ASRLLM
   wandb_project_name: ASRLLM_llama_3B_CA_GLU_50h
-  wandb_exp_name: exp_3cxtaw_glu_mel_norm_50h  
+  wandb_exp_name: exp_3ctx_mfcc_norm_50h  
   log_dir: ./logs
-  log_filename: train_3cxtaw_glu_mel_norm_50h.log  
+  log_filename: train_3ctx_mfcc_norm_50h.log  # ← FIXED
   log_interval: 50
