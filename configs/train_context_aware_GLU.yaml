@@ -107,9 +107,14 @@ data:
   
   normalize: false
   
-  # MFCC normalization settings
-  mel_input_norm: true
-  mel_stats_path: data/mfcc_stats/  
+  # Mel normalization settings
+  mel_input_norm: false
+  mel_stats_path: data/mel_stats/  
+  mel_mean_file: mel_means_train_50h.npy  
+  mel_std_file: mel_stds_train_50h.npy
+  
+  mfcc_input_norm: true
+  mfcc_stats_path: data/mfcc_stats/
   mfcc_mean_file: mfcc_means_train_50h.npy  
   mfcc_std_file: mfcc_stds_train_50h.npy    
   clamp_epsilon: 1e-8
