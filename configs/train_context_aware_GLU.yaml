@@ -52,7 +52,7 @@ train:
 
   # Fine-tuning/Adapter/Quantization controls
   use_peft: false
-  output_dir: output_llama3b_3ctx_mfcc_norm_50h/  
+  output_dir: output_llama3b_3ctx_mfcc_no_norm_50h/  
   freeze_layers: false
   num_freeze_layers: 0
   quantization: false
@@ -114,7 +114,7 @@ data:
   mel_mean_file: mel_means_train_50h.npy  
   mel_std_file: mel_stds_train_50h.npy
   
-  mfcc_input_norm: true
+  mfcc_input_norm: false
   mfcc_stats_path: data/mfcc_stats/
   mfcc_mean_file: mfcc_means_train_50h.npy  
   mfcc_std_file: mfcc_stds_train_50h.npy    
@@ -126,7 +126,7 @@ log:
   wandb_dir: ./wandb
   wandb_entity_name: ASRLLM
   wandb_project_name: ASRLLM_llama_3B_CA_GLU_50h
-  wandb_exp_name: exp_3ctx_mfcc_norm_50h  
+  wandb_exp_name: exp_3ctx_mfcc_no_norm_50h  
   log_dir: ./logs
-  log_filename: train_3ctx_mfcc_norm_50h.log  # ← FIXED
+  log_filename: train_3ctx_mfcc_no_norm_50h.log 
   log_interval: 50
