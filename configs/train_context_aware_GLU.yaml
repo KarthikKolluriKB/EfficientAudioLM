@@ -14,6 +14,7 @@ model:
   hidden_dim: 2048
 
   # Feature front-end
+  input_type: mfcc  # MFCC input
   mel_size: 80      # Keep for compatibility
   n_mfcc: 40        # MFCC size
   normalize: false
