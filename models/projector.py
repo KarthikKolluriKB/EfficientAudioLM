@@ -266,9 +266,10 @@ class ContextAwareProjectorGLU(nn.Module):
         self.patch_stride = config.patch_stride
         #self.context_size = config.context_size
         
+        feature_dim = self._get_feature_dim(config)
+
         # Standard patch dim
-        raw_patch_dim = config.patch_length * config.mel_size
-        
+        raw_patch_dim = config.patch_length * feature_dim        
         # Triple the context
         context_dim = raw_patch_dim * 3 # Using 5 patches for richer context 
         
@@ -291,6 +292,17 @@ class ContextAwareProjectorGLU(nn.Module):
         print(f"ContextAwareProjectorGLU: {context_dim} -> GLU({hidden_dim*2}->{hidden_dim}) -> {config.llm_dim}")
         self._init_weights()
 
+    
+    def _get_feature_dim(self, config):
+        # Determine feature dimension based on input type
+        if hasattr(config, "input_type") and config.input_type == "mfcc":
+            return config.n_mfcc
+        elif hasattr(config, "mel_size"):
+            return config.mel_size
+        else:
+            raise ValueError("Config must have either 'n_mfcc' for MFCC or 'mel_size' for mel spectrograms.")
+    
+    
     def _init_weights(self):
         for m in self.modules():
             if isinstance(m, nn.Linear):
