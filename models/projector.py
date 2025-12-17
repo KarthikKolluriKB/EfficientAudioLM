@@ -258,52 +258,101 @@ class ContextAwareProjector(nn.Module):
 
 class ContextAwareProjectorGLU(nn.Module):
     """
-    Context-Aware Projector : Uses GLU (Gated Linear Unit) for smarter context filtering.
+    Context-Aware Projector: Uses GLU (Gated Linear Unit) for smarter context filtering.
+    Supports mel, mfcc, and combined feature types.
     """
     def __init__(self, config):
         super().__init__()
         self.patch_length = config.patch_length 
         self.patch_stride = config.patch_stride
-        #self.context_size = config.context_size
+        self.context_size = 3  # Fixed to 3 for [t-1, t, t+1]
         
+        # Determine feature dimension based on input type
         feature_dim = self._get_feature_dim(config)
 
         # Standard patch dim
-        raw_patch_dim = config.patch_length * feature_dim        
-        # Triple the context
-        context_dim = raw_patch_dim * 3 # Using 5 patches for richer context 
+        raw_patch_dim = self.patch_length * feature_dim
+        
+        # Context dimension (3 patches for temporal context)
+        context_dim = raw_patch_dim * self.context_size
         
         # Hidden dim
-        hidden_dim = getattr(config, "hidden_dim", 2048) 
+        hidden_dim = getattr(config, "hidden_dim", 2048)
 
         # GLU Projection Logic
         # 1. Project to 2 * hidden_dim (because GLU consumes half for gating)
         # 2. Apply GLU (outputs hidden_dim)
-        # 3. Project to llm_dim
+        # 3. Dropout for regularization
+        # 4. Project to llm_dim
         self.projection = nn.Sequential(
-            nn.Linear(context_dim, hidden_dim * 2), # double width for GLU
-            nn.GLU(dim=-1),                         # GLU activation
+            nn.Linear(context_dim, hidden_dim * 2),  # double width for GLU
+            nn.GLU(dim=-1),                          # GLU activation
             nn.Dropout(config.mel_dropout),
             nn.Linear(hidden_dim, config.llm_dim)
         )
         
         self.norm = nn.LayerNorm(config.llm_dim)
         
-        print(f"ContextAwareProjectorGLU: {context_dim} -> GLU({hidden_dim*2}->{hidden_dim}) -> {config.llm_dim}")
+        # Logging for debugging
+        input_type = getattr(config, "input_type", "mel")
+        print(f"\n{'='*60}")
+        print(f"ContextAwareProjectorGLU Configuration:")
+        print(f"  Input Type: {input_type}")
+        print(f"  Feature Dimension: {feature_dim}")
+        print(f"  Patch Length: {self.patch_length}")
+        print(f"  Patch Stride: {self.patch_stride}")
+        print(f"  Raw Patch Dim: {raw_patch_dim}")
+        print(f"  Context Size: {self.context_size}")
+        print(f"  Context Dim: {context_dim}")
+        print(f"  Architecture: {context_dim} -> GLU({hidden_dim*2}->{hidden_dim}) -> {config.llm_dim}")
+        print(f"{'='*60}\n")
+        
         self._init_weights()
 
-    
     def _get_feature_dim(self, config):
-        # Determine feature dimension based on input type
-        if hasattr(config, "input_type") and config.input_type == "mfcc":
+        """
+        Determine feature dimension based on input type.
+        
+        Supports:
+        - "mel": mel_size only
+        - "mfcc": n_mfcc only  
+        - "combined": mel_size + n_mfcc
+        
+        Args:
+            config: Configuration object with input_type, mel_size, and/or n_mfcc
+            
+        Returns:
+            int: Feature dimension
+        """
+        input_type = getattr(config, "input_type", "mel").lower()
+        
+        if input_type == "mfcc":
+            # MFCC only
+            if not hasattr(config, "n_mfcc"):
+                raise ValueError(
+                    "Config must have 'n_mfcc' attribute when input_type='mfcc'"
+                )
             return config.n_mfcc
-        elif hasattr(config, "mel_size"):
+        
+        elif input_type == "combined":
+            # Mel + MFCC
+            if not hasattr(config, "mel_size") or not hasattr(config, "n_mfcc"):
+                raise ValueError(
+                    "Config must have both 'mel_size' and 'n_mfcc' "
+                    "attributes when input_type='combined'"
+                )
+            return config.mel_size + config.n_mfcc
+        
+        else:  # "mel" or default
+            # Mel only (default behavior)
+            if not hasattr(config, "mel_size"):
+                raise ValueError(
+                    "Config must have 'mel_size' attribute when input_type='mel'"
+                )
             return config.mel_size
-        else:
-            raise ValueError("Config must have either 'n_mfcc' for MFCC or 'mel_size' for mel spectrograms.")
-    
     
     def _init_weights(self):
+        """Initialize weights using Xavier uniform for better convergence."""
         for m in self.modules():
             if isinstance(m, nn.Linear):
                 nn.init.xavier_uniform_(m.weight)
@@ -311,9 +360,21 @@ class ContextAwareProjectorGLU(nn.Module):
                     nn.init.zeros_(m.bias)
 
     def forward(self, x):
+        """
+        Forward pass with context-aware patching and GLU projection.
+        
+        Args:
+            x: (B, T, F_dim) - batch, time, feature dimension
+               - For mel: F_dim = mel_size (e.g., 80)
+               - For mfcc: F_dim = n_mfcc (e.g., 40)
+               - For combined: F_dim = mel_size + n_mfcc (e.g., 120)
+        
+        Returns:
+            (B, Num_Patches, LLM_dim) - projected context-aware patches
+        """
         B, T, F_dim = x.shape
         
-        # Pad for patching
+        # Pad for patching (handle remainder)
         remainder = T % self.patch_length
         if remainder != 0:
             pad_length = self.patch_length - remainder
@@ -321,22 +382,28 @@ class ContextAwareProjectorGLU(nn.Module):
             T = x.shape[1]
 
         # Extract Patches
+        # unfold: (B, T, F_dim) -> (B, Num_Patches, patch_length, F_dim)
         # Shape: (B, Num_Patches, raw_patch_dim)
         patches = x.unfold(1, self.patch_length, self.patch_stride)
         patches = patches.permute(0, 1, 3, 2).reshape(B, -1, self.patch_length * F_dim)
         
         # Create Context Windows [t-1, t, t+1]
-        # Pad 1 patch left and 1 patch right
+        # Pad 1 patch left and 1 patch right for temporal context
         padded_patches = F.pad(patches, (0, 0, 1, 1), value=0.0) 
-        # Window size 3
+        
+        # Window size 3 for context [previous, current, next]
         context_windows = padded_patches.unfold(1, 3, 1) 
-        # Flatten the context: (B, Num_Patches, 3*D)
+        
+        # Flatten the context: (B, Num_Patches, 3*raw_patch_dim)
         B_new, N_new, D, Window = context_windows.shape
         context_input = context_windows.permute(0, 1, 3, 2).reshape(B_new, N_new, D * Window)
 
+        # Apply GLU projection and normalization
         x = self.projection(context_input)
         x = self.norm(x)
+        
         return x
+
 
 
 class EncoderProjectorCov1d(nn.Module):
