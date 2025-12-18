@@ -94,7 +94,7 @@ data:
   inference_mode: false
   
   # MFCC feature settings
-  input_type: mfcc  # MFCC input
+  input_type: mel  # MFCC input
   mel_size: 80      # Keep for compatibility
   n_mfcc: 40        # MFCC coefficients
   
