@@ -1,4 +1,5 @@
 import json, yaml
+import math
 import copy 
 
 import numpy as np
@@ -227,22 +228,15 @@ class SpeechDatasetJsonl(torch.utils.data.Dataset):
 
         return mfcc
 
-    def calculate_audio_length(self, num_frames) -> int: 
-        """
-        Calculate the audio length after patching.
-        Formula: (num_frames - patch_length) // patch_stride + 1
-
-        Args: 
-            num_frames: int, number of frames in the audio feature.
-
-        Returns:
-            int: length of the audio sequence after patching.
-        """
+    def calculate_audio_length(self, num_frames) -> int:
+        """Calculate the audio length after patching."""
         if self.fix_length_audio > 0:
             return self.fix_length_audio
-        # audio length after patching
-        audio_length = (num_frames - self.patch_length) // self.patch_stride + 1
-        return max(1, audio_length) # ensure at least length 1
+    
+        # Account for padding that happens in projector
+        padded_frames = math.ceil(num_frames / self.patch_length) * self.patch_length
+        audio_length = (padded_frames - self.patch_length) // self.patch_stride + 1
+        return max(1, audio_length)
 
     def __getitem__(self, index: int) -> dict: 
         """
