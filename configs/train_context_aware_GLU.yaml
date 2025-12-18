@@ -52,7 +52,7 @@ train:
 
   # Fine-tuning/Adapter/Quantization controls
   use_peft: false
-  output_dir: output_llama3b_3ctx_mel_no_norm_50h_2/  
+  output_dir: output_llama3b_3ctx_mel_norm_50h/  
   freeze_layers: false
   num_freeze_layers: 0
   quantization: false
@@ -126,7 +126,7 @@ log:
   wandb_dir: ./wandb
   wandb_entity_name: ASRLLM
   wandb_project_name: ASRLLM_llama_3B_CA_GLU_50h
-  wandb_exp_name: exp_3ctx_mel_no_norm_50h_2  
+  wandb_exp_name: exp_3ctx_mel_norm_50h 
   log_dir: ./logs
-  log_filename: train_3ctx_mel_no_norm_50h_2.log 
+  log_filename: train_3ctx_mel_norm_50h.log 
   log_interval: 50
