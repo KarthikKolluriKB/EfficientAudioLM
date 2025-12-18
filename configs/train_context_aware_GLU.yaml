@@ -109,7 +109,7 @@ data:
   normalize: false
   
   # Mel normalization settings
-  mel_input_norm: false
+  mel_input_norm: true
   mel_stats_path: data/mel_stats/  
   mel_mean_file: mel_means_train_50h.npy  
   mel_std_file: mel_stds_train_50h.npy
