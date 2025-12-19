@@ -240,6 +240,7 @@ class SpeechDatasetJsonl(torch.utils.data.Dataset):
 
     def __getitem__(self, index: int) -> dict: 
         """
+        Get a data sample by index.
         """ 
         data_dict = self.data_list[index]
         audio_path = data_dict.get("source")
@@ -287,18 +288,22 @@ class SpeechDatasetJsonl(torch.utils.data.Dataset):
             audio_length = self.calculate_audio_length(audio_mel.shape[0])
 
         elif self.input_type == "combined":
-            # pad or trim audio 
+            # Pad or trim audio 
             audio_raw = self.pad_or_trim_audio(audio_raw)
 
             # Extract log-mel spectrogram
             mel_features = self.extract_log_mel_spectrogram(audio_raw)
 
-            # Apply normalization if enabled
+            # Apply MEL normalization if enabled
             if self.mel_input_norm:
                 mel_features = (mel_features - self.mel_means) / (self.mel_stds + self.clamp_epsilon)
 
             # Extract MFCC features
             mfcc_features = self.extract_mfcc(audio_raw)
+
+            # Apply MFCC normalization if enabled ← YOU WERE MISSING THIS!
+            if self.mfcc_input_norm:
+                mfcc_features = (mfcc_features - self.mfcc_means) / (self.mfcc_stds + self.clamp_epsilon)
 
             # Ensure both features have the same time dimension
             min_length = min(mel_features.shape[0], mfcc_features.shape[0])
@@ -308,7 +313,7 @@ class SpeechDatasetJsonl(torch.utils.data.Dataset):
             # Concatenate along feature dimension
             audio_mel = torch.cat((mel_features, mfcc_features), dim=1)
 
-            # calculate Sequence length for your projector
+            # Calculate sequence length for your projector
             audio_length = self.calculate_audio_length(audio_mel.shape[0])
 
         audio_pseudo = torch.full((audio_length,), -1)
