@@ -38,6 +38,7 @@ train:
   grad_clip: 1.0
   num_epochs: 10
   num_workers: 8
+  warmup_steps: 1000
   total_steps: 25000
   validation_interval: 1000
   lr: 2.0e-4
@@ -45,9 +46,16 @@ train:
   gamma: 0.85
   seed: 42
   mixed_precision: true
+  use_fp16: true
   quantization: false
   freeze_llm: true
-  use_peft: true
+  freeze_encoder: true
+  freeze_layers: false
+  num_freeze_layers: 0
+  use_peft: false
+  one_gpu: true
+  save_model: true
+  use_fast_kernels: false
   output_dir: logs/cnn_fuyu_100h
   val_batch_size: 4
 
