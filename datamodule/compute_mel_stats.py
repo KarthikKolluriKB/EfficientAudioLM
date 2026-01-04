@@ -155,7 +155,7 @@ def compute_and_save_mel_stats(
     
     # Save to files
     output_dir = Path(output_path)
-    data_set_name = "train_50h"
+    data_set_name = "train_100h"
     
     output_dir.mkdir(parents=True, exist_ok=True)
     
