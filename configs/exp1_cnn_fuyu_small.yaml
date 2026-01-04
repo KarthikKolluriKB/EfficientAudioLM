@@ -56,7 +56,7 @@ train:
   one_gpu: true
   save_model: true
   use_fast_kernels: false
-  output_dir: logs/exp1_cnn_fuyu_small
+  output_dir: output/exp1_cnn_fuyu_small
   val_batch_size: 4
 
 scheduler:
@@ -113,7 +113,7 @@ log:
   use_wandb: true
   wandb_dir: ./wandb
   wandb_entity_name: ASRLLM
-  wandb_project_name: ASRLLM_CNN_Fuyu_Ablation
+  wandb_project_name: ASRLLM_llama_3B_Patv2_100h
   wandb_exp_name: exp1_cnn_small_256ch_k5
   log_dir: ./logs
   log_filename: exp1_cnn_fuyu_small.log

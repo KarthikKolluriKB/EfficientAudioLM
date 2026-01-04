@@ -56,7 +56,7 @@ train:
   one_gpu: true
   save_model: true
   use_fast_kernels: false
-  output_dir: logs/exp2_cnn_fuyu_large
+  output_dir: output/exp2_cnn_fuyu_large
   val_batch_size: 4
 
 scheduler:
@@ -113,7 +113,7 @@ log:
   use_wandb: true
   wandb_dir: ./wandb
   wandb_entity_name: ASRLLM
-  wandb_project_name: ASRLLM_CNN_Fuyu_Ablation
+  wandb_project_name: ASRLLM_llama_3B_Patv2_100h
   wandb_exp_name: exp2_cnn_large_384ch_k7
   log_dir: ./logs
   log_filename: exp2_cnn_fuyu_large.log

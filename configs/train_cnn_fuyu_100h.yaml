@@ -56,7 +56,7 @@ train:
   one_gpu: true
   save_model: true
   use_fast_kernels: false
-  output_dir: logs/cnn_fuyu_100h
+  output_dir: output_cnn_fuyu_100h/
   val_batch_size: 4
 
 scheduler:
