@@ -372,7 +372,7 @@ def main():
 
         # Check early stopping
         # Only if enabled in config
-        if cfg.early_stopping.get("enabled", True):
+        if cfg.early_stopping.get("enabled", False):
             if early_stop.check(val_loss):
                 logger.info(f"Early stopping at epoch: {epoch} (patience={early_stop.patience})")
                 break

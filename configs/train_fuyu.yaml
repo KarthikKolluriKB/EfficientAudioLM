@@ -1,0 +1,112 @@
+model:
+  model_name: ASRLLM
+  file: models/model.py:ASRLLM
+  llm_model_name: llama3.2-3B
+  llm_model: meta-llama/Llama-3.2-3B
+  llm_model_path: null
+  llm_type: decoder_only
+  llm_dim: 3072
+
+  # Fuyu-style projector (encoder-free, 2-layer MLP)
+  projector: fuyu
+
+  # Feature front-end
+  input_type: mel
+  mel_size: 80
+  normalize: false
+
+  # Patch settings
+  # 16 frames @ 10ms hop = 160ms per patch
+  patch_length: 16
+  
+  # Maximum audio patches (512 × 160ms = 81.92s max audio)
+  max_audio_patches: 512
+  
+  # MLP hidden dimension (adds non-linearity for acoustic patterns)
+  hidden_dim: 2048
+
+  # Pre-projection normalization and regularization
+  mel_input_norm: true
+  mel_dropout: 0.1
+
+  modal: audio
+  encoder_type: finetune
+
+train:
+  model_name: ASRLLM
+  run_validation: true
+  batch_size: 8
+  batching_strategy: packing
+  context_length: 384
+  gradient_accumulation_steps: 8
+  grad_clip: 1.0
+  num_epochs: 15
+  num_workers: 8
+  total_steps: 11000
+  validation_interval: 350
+  lr: 2.0e-4
+  weight_decay: 0.05
+  gamma: 0.85
+  seed: 42
+  use_fp16: false
+  mixed_precision: true
+  val_batch_size: 8
+
+  # Fine-tuning controls
+  use_peft: false
+  output_dir: output_fuyu_mel/
+  freeze_layers: false
+  num_freeze_layers: 0
+  quantization: false
+  one_gpu: true
+  save_model: true
+  use_fast_kernels: false
+  freeze_llm: true
+  freeze_encoder: true
+
+scheduler:
+  enabled: true
+  type: cosine_with_warmup
+  num_warmup_steps: 336
+  num_cycles: 0.5
+  lr_end: 1.0e-7
+  use_hf: true
+
+early_stopping:
+  enabled: true
+  monitor: val/loss
+  mode: min
+  patience: 8
+  min_delta: 0.001
+
+data:
+  dataset: speech_dataset
+  file: datamodules/datasets.py:get_speech_dataset
+  train_data_path: data/train-clean-50.jsonl
+  val_data_path: data/dev-clean.jsonl
+  test_data_path: data/test-clean.jsonl
+  train_split: train
+  val_split: val
+  test_split: test
+  prompt: null
+  data_path: null
+  max_words: null
+  max_mel: null
+  fix_length_audio: -1
+  inference_mode: false
+
+  # Feature settings (must match model config)
+  input_type: mel
+  mel_size: 80
+
+  # Mel normalization
+  mel_input_norm: true
+  mel_stats_path: data/mel_stats
+
+  # Patch settings (for audio_length calculation)
+  patch_length: 16
+  patch_stride: 16  # Non-overlapping patches for Fuyu
+
+log:
+  log_dir: logs
+  log_filename: train_fuyu.log

@@ -108,7 +108,13 @@ def setup_llm(train_config, model_config, **kwargs):
 
 
 def setup_projector(train_config, model_config, **kwargs):
-    if model_config.projector == "linear":
+    if model_config.projector == "cnn-fuyu":
+        from models.projector import CNNFuyuProjector
+        projector = CNNFuyuProjector(model_config)
+    elif model_config.projector == "fuyu":
+        from models.projector import FuyuAudioProjector
+        projector = FuyuAudioProjector(model_config)
+    elif model_config.projector == "linear":
         from models.projector import MelProjectorConcat
         projector = MelProjectorConcat(model_config)
     elif model_config.projector == "patched-linear":

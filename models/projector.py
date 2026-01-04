@@ -3,6 +3,300 @@ import torch.nn as nn
 from torch.nn import functional as F
 
 
+class CNNFuyuProjector(nn.Module):
+    """
+    CNN Downsampler + Fuyu-Style Projector with Positional Embeddings.
+    
+    Architecture:
+        mel [B, T, 80] 
+            → CNN Downsampler (2 layers, stride 2 each) → [B, T/4, cnn_channels]
+            → Linear Projection → [B, T/4, llm_dim]
+            → + Positional Embeddings
+            → LayerNorm
+            → LLM
+    
+    Design Philosophy:
+        - CNN provides local acoustic pattern extraction (what pure Fuyu lacks)
+        - 4x temporal downsampling reduces sequence length for LLM efficiency
+        - Positional embeddings preserve temporal order information
+        - Minimal complexity: only 2 CNN layers + 1 Linear
+    
+    Why This Works When Pure Fuyu Fails:
+        - CNN kernels capture phoneme-level patterns across frames
+        - Overlapping receptive fields handle phoneme boundaries
+        - Downsampling creates more information-dense representations
+    
+    Args:
+        config: Configuration with:
+            - mel_size: Mel frequency bins (e.g., 80)
+            - llm_dim: LLM embedding dimension (e.g., 3072)
+            - cnn_channels: CNN output channels (default: 256)
+            - cnn_kernel_size: Convolution kernel size (default: 5)
+            - max_audio_length: Maximum audio frames (default: 3000)
+            - mel_dropout: Dropout rate (default: 0.1)
+    """
+    def __init__(self, config):
+        super().__init__()
+        
+        # Dimensions
+        mel_dim = config.mel_size
+        llm_dim = config.llm_dim
+        cnn_channels = getattr(config, "cnn_channels", 256)
+        kernel_size = getattr(config, "cnn_kernel_size", 5)
+        dropout = getattr(config, "mel_dropout", 0.1)
+        
+        # Max positions after 4x downsampling
+        max_audio_length = getattr(config, "max_audio_length", 3000)
+        self.max_positions = max_audio_length // 4
+        
+        # 2-Layer CNN Downsampler (4x total downsampling)
+        # Each layer: stride=2 → 2x downsampling
+        self.cnn = nn.Sequential(
+            # Layer 1: [B, mel_dim, T] → [B, cnn_channels, T/2]
+            nn.Conv1d(mel_dim, cnn_channels, kernel_size=kernel_size, 
+                      stride=2, padding=kernel_size // 2),
+            nn.GELU(),
+            nn.BatchNorm1d(cnn_channels),
+            nn.Dropout(dropout),
+            
+            # Layer 2: [B, cnn_channels, T/2] → [B, cnn_channels, T/4]
+            nn.Conv1d(cnn_channels, cnn_channels, kernel_size=kernel_size, 
+                      stride=2, padding=kernel_size // 2),
+            nn.GELU(),
+            nn.BatchNorm1d(cnn_channels),
+            nn.Dropout(dropout),
+        )
+        
+        # Linear projection to LLM dimension
+        self.projection = nn.Linear(cnn_channels, llm_dim)
+        
+        # Positional embeddings for temporal awareness
+        self.pos_embedding = nn.Embedding(self.max_positions, llm_dim)
+        
+        # LayerNorm for stability
+        self.norm = nn.LayerNorm(llm_dim)
+        
+        self._init_weights()
+        
+        # Parameter counting
+        cnn_params = sum(p.numel() for p in self.cnn.parameters())
+        proj_params = cnn_channels * llm_dim + llm_dim
+        pos_params = self.max_positions * llm_dim
+        norm_params = 2 * llm_dim
+        total_params = cnn_params + proj_params + pos_params + norm_params
+        
+        print(f"\n{'='*60}")
+        print(f"CNNFuyuProjector (CNN Downsampler + Fuyu + PosEmb)")
+        print(f"  Mel Dim: {mel_dim}")
+        print(f"  CNN Channels: {cnn_channels}")
+        print(f"  Kernel Size: {kernel_size}")
+        print(f"  Downsampling: 4x (stride 2 × 2 layers)")
+        print(f"  LLM Dim: {llm_dim}")
+        print(f"  Max Positions: {self.max_positions} (~{self.max_positions * 4 * 10 / 1000:.1f}s audio)")
+        print(f"  Dropout: {dropout}")
+        print(f"  Architecture: mel[{mel_dim}] → CNN[{cnn_channels}] → Linear → +PosEmb → [{llm_dim}]")
+        print(f"  Parameters: {total_params:,}")
+        print(f"    - CNN: {cnn_params:,}")
+        print(f"    - Projection: {proj_params:,}")
+        print(f"    - PosEmb: {pos_params:,}")
+        print(f"{'='*60}\n")
+
+    def _init_weights(self):
+        """Initialize weights for stable training."""
+        # Xavier for CNN and Linear
+        for module in self.modules():
+            if isinstance(module, (nn.Conv1d, nn.Linear)):
+                nn.init.xavier_uniform_(module.weight)
+                if module.bias is not None:
+                    nn.init.zeros_(module.bias)
+        
+        # Normal initialization for positional embeddings
+        nn.init.normal_(self.pos_embedding.weight, mean=0.0, std=0.02)
+
+    def forward(self, x):
+        """
+        Forward pass: CNN downsample → project → add positional embeddings.
+        
+        Args:
+            x: [B, T, mel_dim] - mel spectrogram
+        
+        Returns:
+            [B, T/4, llm_dim] - projected features with positional info
+        """
+        B, T, mel_dim = x.shape
+        
+        # CNN expects [B, C, T] format
+        x = x.transpose(1, 2)  # [B, mel_dim, T]
+        
+        # CNN downsampling: [B, mel_dim, T] → [B, cnn_channels, T/4]
+        x = self.cnn(x)
+        
+        # Back to [B, T/4, cnn_channels]
+        x = x.transpose(1, 2)
+        
+        # Linear projection to LLM dim
+        x = self.projection(x)
+        
+        # Add positional embeddings
+        seq_len = x.shape[1]
+        positions = torch.arange(seq_len, device=x.device)
+        positions = positions.clamp(max=self.max_positions - 1)
+        x = x + self.pos_embedding(positions)
+        
+        # Normalize
+        x = self.norm(x)
+        
+        return x
+
+
+class FuyuAudioProjector(nn.Module):
+    """
+    Fuyu-Style Audio Projector V2 with 2-Layer MLP and Positional Embeddings.
+    
+    Enhanced version that adds non-linearity to learn acoustic patterns
+    while staying true to the encoder-free Fuyu philosophy.
+    
+    Architecture:
+        mel spectrogram [B, T, F] 
+            -> patch [B, N, patch_length * F]
+            -> 2-layer MLP [B, N, llm_dim]
+            -> + positional embedding [N, llm_dim]
+            -> LayerNorm
+    
+    Why 2-Layer MLP?
+        - Single linear may be too weak for mel→text mapping
+        - GELU adds non-linearity to learn acoustic patterns
+        - Hidden layer provides capacity for feature transformation
+        - Still much simpler than full audio encoders (Whisper: 24 layers)
+    
+    Args:
+        config: Configuration with:
+            - patch_length: Number of frames per patch (e.g., 16 = 160ms)
+            - mel_size: Mel frequency bins (e.g., 80)
+            - llm_dim: LLM embedding dimension (e.g., 3072)
+            - hidden_dim: MLP hidden dimension (default: 2048)
+            - input_type: "mel", "mfcc", or "combined"
+            - max_audio_patches: Maximum patches (default: 512)
+    """
+    def __init__(self, config):
+        super().__init__()
+        self.patch_length = config.patch_length
+        
+        # Determine feature dimension based on input type
+        self.feature_dim = self._get_feature_dim(config)
+        
+        # Dimensions
+        patch_dim = self.patch_length * self.feature_dim
+        hidden_dim = getattr(config, "hidden_dim", 2048)
+        llm_dim = config.llm_dim
+        dropout = getattr(config, "mel_dropout", 0.1)
+        
+        # Maximum audio patches for positional embeddings
+        self.max_patches = getattr(config, "max_audio_patches", 512)
+        
+        # 2-Layer MLP Projection (adds non-linearity for acoustic patterns)
+        # patch_dim -> hidden_dim -> llm_dim
+        self.projection = nn.Sequential(
+            nn.Linear(patch_dim, hidden_dim),
+            nn.GELU(),
+            nn.Dropout(dropout),
+            nn.Linear(hidden_dim, llm_dim),
+        )
+        
+        # Learned positional embeddings for temporal awareness
+        self.pos_embedding = nn.Embedding(self.max_patches, llm_dim)
+        
+        # LayerNorm for training stability
+        self.norm = nn.LayerNorm(llm_dim)
+        
+        # Final dropout
+        self.dropout = nn.Dropout(dropout)
+        
+        self._init_weights()
+        
+        # Logging
+        proj_params = (patch_dim * hidden_dim + hidden_dim + 
+                       hidden_dim * llm_dim + llm_dim)
+        pos_params = self.max_patches * llm_dim
+        norm_params = 2 * llm_dim
+        total_params = proj_params + pos_params + norm_params
+        
+        print(f"\n{'='*60}")
+        print(f"FuyuAudioProjector V2 (2-Layer MLP + Positional)")
+        print(f"  Input Type: {getattr(config, 'input_type', 'mel')}")
+        print(f"  Feature Dim: {self.feature_dim}")
+        print(f"  Patch Length: {self.patch_length} frames ({self.patch_length * 10}ms)")
+        print(f"  Patch Dim: {patch_dim}")
+        print(f"  Hidden Dim: {hidden_dim}")
+        print(f"  Output Dim: {llm_dim}")
+        print(f"  Max Patches: {self.max_patches} (~{self.max_patches * self.patch_length * 10 / 1000:.1f}s audio)")
+        print(f"  Dropout: {dropout}")
+        print(f"  Architecture: [{patch_dim}] -> MLP({hidden_dim}) -> + PosEmb -> [{llm_dim}]")
+        print(f"  Parameters: {total_params:,}")
+        print(f"    - MLP: {proj_params:,}")
+        print(f"    - PosEmb: {pos_params:,}")
+        print(f"{'='*60}\n")
+
+    def _get_feature_dim(self, config):
+        """Determine feature dimension based on input type."""
+        input_type = getattr(config, "input_type", "mel").lower()
+        
+        if input_type == "mfcc":
+            return config.n_mfcc
+        elif input_type == "combined":
+            return config.mel_size + config.n_mfcc
+        else:  # "mel" (default)
+            return config.mel_size
+
+    def _init_weights(self):
+        """Initialize weights for stable training."""
+        # Xavier for MLP layers
+        for module in self.projection:
+            if isinstance(module, nn.Linear):
+                nn.init.xavier_uniform_(module.weight)
+                nn.init.zeros_(module.bias)
+        
+        # Normal initialization for positional embeddings
+        nn.init.normal_(self.pos_embedding.weight, mean=0.0, std=0.02)
+
+    def forward(self, x):
+        """
+        Forward pass: Patch, MLP project, add positional embeddings.
+        
+        Args:
+            x: [B, T, feat_dim] - mel spectrogram or MFCC features
+        
+        Returns:
+            [B, N, llm_dim] - projected patches with positional info
+        """
+        B, T, feat_dim = x.shape
+        
+        # Pad to multiple of patch_length
+        remainder = T % self.patch_length
+        if remainder != 0:
+            pad_len = self.patch_length - remainder
+            x = F.pad(x, (0, 0, 0, pad_len), value=0.0)
+            T = x.shape[1]
+        
+        # Reshape into patches: [B, T, feat_dim] -> [B, N, patch_length * feat_dim]
+        N = T // self.patch_length
+        x = x.view(B, N, self.patch_length * feat_dim)
+        
+        # 2-Layer MLP projection
+        x = self.projection(x)
+        
+        # Add positional embeddings
+        positions = torch.arange(N, device=x.device)
+        positions = positions.clamp(max=self.max_patches - 1)
+        x = x + self.pos_embedding(positions)
+        
+        # Normalize and dropout
+        x = self.norm(x)
+        x = self.dropout(x)
+        
+        return x
+
+
 class MelProjectorConcat(nn.Module):
     def __init__(self, config):
         super().__init__()
