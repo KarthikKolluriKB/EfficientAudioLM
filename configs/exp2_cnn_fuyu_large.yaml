@@ -13,11 +13,11 @@ model:
   # Feature settings
   input_type: mel
   mel_size: 80
-  normalize: true  # Use precomputed mel stats for stable CNN training
+  normalize: true
 
-  # CNN settings
-  cnn_channels: 256
-  cnn_kernel_size: 5
+  # CNN settings - LARGE (More Capacity)
+  cnn_channels: 384
+  cnn_kernel_size: 7
 
   # Maximum audio length in frames (3000 frames = 30s @ 10ms hop)
   max_audio_length: 3000
@@ -56,7 +56,7 @@ train:
   one_gpu: true
   save_model: true
   use_fast_kernels: false
-  output_dir: logs/cnn_fuyu_100h
+  output_dir: logs/exp2_cnn_fuyu_large
   val_batch_size: 4
 
 scheduler:
@@ -69,7 +69,7 @@ scheduler:
 
 early_stopping:
   enabled: true      
-  monitor: val/loss    # Monitor loss or WER if available
+  monitor: val/loss
   mode: min
   patience: 10
   min_delta: 0.001
@@ -113,8 +113,8 @@ log:
   use_wandb: true
   wandb_dir: ./wandb
   wandb_entity_name: ASRLLM
-  wandb_project_name: ASRLLM_llama_3B_Patv2_100h
-  wandb_exp_name: exp_cnn_fuyu_100h
+  wandb_project_name: ASRLLM_CNN_Fuyu_Ablation
+  wandb_exp_name: exp2_cnn_large_384ch_k7
   log_dir: ./logs
-  log_filename: train_llama3b_cnn_fuyu_100h.log
+  log_filename: exp2_cnn_fuyu_large.log
   log_interval: 50
