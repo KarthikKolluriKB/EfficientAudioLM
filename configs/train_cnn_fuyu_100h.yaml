@@ -48,6 +48,8 @@ train:
   quantization: false
   freeze_llm: true
   use_peft: true
+  output_dir: logs/cnn_fuyu_100h
+  val_batch_size: 4
 
 scheduler:
   enabled: true        
