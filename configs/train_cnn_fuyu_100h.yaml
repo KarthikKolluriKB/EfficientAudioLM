@@ -110,4 +110,3 @@ log:
   log_dir: ./logs
   log_filename: train_llama3b_cnn_fuyu_100h.log
   log_interval: 50
-  log_interval: 50
