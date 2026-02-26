@@ -19,6 +19,7 @@ class SpeechDatasetJsonl(torch.utils.data.Dataset):
         A dataset class for loading speech data and corresponding text from JSONL files.
         """
         super().__init__()
+        self.split = split
         self.dataset_config = dataset_config
         self.tokenizer = tokenizer
         data_parallel_size = 1
@@ -57,6 +58,16 @@ class SpeechDatasetJsonl(torch.utils.data.Dataset):
         self.mel_input_norm = dataset_config.get("mel_input_norm", False)
         self.mel_stats_path = dataset_config.get("mel_stats_path", None)
         self.clamp_epsilon = dataset_config.get("clamp_epsilon", 1e-8)
+
+        # CNN projector downsampling factor (for correct audio_length calculation)
+        self.downsample_factor = dataset_config.get("downsample_factor", None)
+
+        # SpecAugment settings (training-time only)
+        self.spec_augment = dataset_config.get("spec_augment", False)
+        self.spec_aug_freq_masks = dataset_config.get("spec_aug_freq_masks", 2)
+        self.spec_aug_freq_width = dataset_config.get("spec_aug_freq_width", 15)
+        self.spec_aug_time_masks = dataset_config.get("spec_aug_time_masks", 2)
+        self.spec_aug_time_width = dataset_config.get("spec_aug_time_width", 50)
 
         # mfcc stats
         self.mfcc_input_norm = dataset_config.get("mfcc_input_norm", False)
@@ -228,12 +239,43 @@ class SpeechDatasetJsonl(torch.utils.data.Dataset):
 
         return mfcc
 
+    def apply_spec_augment(self, mel):
+        """
+        Apply SpecAugment: frequency and time masking on mel spectrogram.
+
+        Args:
+            mel: torch.Tensor of shape [T, F] (time, frequency)
+
+        Returns:
+            Augmented mel spectrogram (same shape)
+        """
+        mel = mel.clone()
+        T, F = mel.shape
+
+        # Frequency masking
+        for _ in range(self.spec_aug_freq_masks):
+            f = random.randint(0, min(self.spec_aug_freq_width, F - 1))
+            f0 = random.randint(0, F - f)
+            mel[:, f0:f0 + f] = 0.0
+
+        # Time masking
+        for _ in range(self.spec_aug_time_masks):
+            t = random.randint(0, min(self.spec_aug_time_width, T - 1))
+            t0 = random.randint(0, T - t)
+            mel[t0:t0 + t, :] = 0.0
+
+        return mel
+
     def calculate_audio_length(self, num_frames) -> int:
-        """Calculate the audio length after patching."""
+        """Calculate the audio length after projector processing."""
         if self.fix_length_audio > 0:
             return self.fix_length_audio
-    
-        # Account for padding that happens in projector
+
+        # CNN projectors: output length = input / downsample_factor
+        if self.downsample_factor is not None:
+            return max(1, num_frames // self.downsample_factor)
+
+        # Patch-based projectors: original formula
         padded_frames = math.ceil(num_frames / self.patch_length) * self.patch_length
         audio_length = (padded_frames - self.patch_length) // self.patch_stride + 1
         return max(1, audio_length)
@@ -260,15 +302,19 @@ class SpeechDatasetJsonl(torch.utils.data.Dataset):
                 audio_mel = None 
 
         elif self.input_type == "mel":
-            # Pad or trim audio 
+            # Pad or trim audio
             audio_raw = self.pad_or_trim_audio(audio_raw)
-             
+
             # Extract log-mel spectrogram
             audio_mel = self.extract_log_mel_spectrogram(audio_raw)
 
             # Apply normalization if enabled
             if self.mel_input_norm:
                 audio_mel = (audio_mel - self.mel_means) / (self.mel_stds + self.clamp_epsilon)
+
+            # Apply SpecAugment (training only)
+            if self.spec_augment and self.split == "train":
+                audio_mel = self.apply_spec_augment(audio_mel)
 
             # Calculate audio length for your projector
             audio_length = self.calculate_audio_length(audio_mel.shape[0])

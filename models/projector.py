@@ -3,6 +3,131 @@ import torch.nn as nn
 from torch.nn import functional as F
 
 
+class CNNFuyuProjectorV2(nn.Module):
+    """
+    Fuyu-Inspired Encoder-Free Audio Projector V2.
+
+    Adapts the Fuyu-8B philosophy for audio with one key modification:
+    a single Conv1d replaces Fuyu's fixed patching. This is necessary
+    because unlike image patches (which are already visually meaningful),
+    raw mel patches lack acoustic structure — audio needs learned local
+    feature extraction before projection.
+
+        Fuyu-8B (vision):  image → fixed patch → Linear → LLM
+        This    (audio):   mel   → Conv1d      → Linear → LLM
+
+    The Conv1d acts as a "learned patcher" that extracts local acoustic
+    features (phoneme-level patterns across ~70ms) while downsampling.
+    The linear projection then maps to LLM space, as in Fuyu.
+
+    Architecture:
+        mel [B, T, 80]
+            → Conv1d(80, C, k=7, s=2) → GELU → LN   [learned local features + 2x downsample]
+            → Linear(C → llm_dim)                     [projection to LLM space]
+            → + Positional Embeddings → LayerNorm
+            → LLM
+
+    Args:
+        config: Configuration with:
+            - mel_size: Mel frequency bins (e.g., 80)
+            - llm_dim: LLM embedding dimension (e.g., 3072)
+            - cnn_channels: Conv output channels (default: 384)
+            - cnn_kernel_size: Conv kernel size (default: 7)
+            - max_audio_length: Maximum audio frames (default: 3000)
+            - mel_dropout: Dropout rate (default: 0.1)
+    """
+    def __init__(self, config):
+        super().__init__()
+
+        mel_dim = config.mel_size
+        llm_dim = config.llm_dim
+        C = getattr(config, "cnn_channels", 384)
+        kernel_size = getattr(config, "cnn_kernel_size", 7)
+        dropout = getattr(config, "mel_dropout", 0.1)
+
+        max_audio_length = getattr(config, "max_audio_length", 3000)
+        self.max_positions = max_audio_length // 2  # 2x downsampling
+
+        # Conv1d: learned local feature extraction + 2x downsampling
+        # Replaces Fuyu's fixed patching — audio needs this because
+        # raw mel patches lack acoustic structure unlike image patches
+        self.conv = nn.Conv1d(mel_dim, C, kernel_size=kernel_size,
+                              stride=2, padding=kernel_size // 2)
+        self.act = nn.GELU()
+        self.conv_norm = nn.LayerNorm(C)
+
+        # Linear projection to LLM space (same as Fuyu)
+        self.projection = nn.Linear(C, llm_dim)
+        self.proj_dropout = nn.Dropout(dropout)
+
+        # Learned positional embeddings
+        self.pos_embedding = nn.Embedding(self.max_positions, llm_dim)
+
+        # Final LayerNorm
+        self.norm_out = nn.LayerNorm(llm_dim)
+
+        self._init_weights()
+
+        # Parameter counting
+        conv_params = sum(p.numel() for p in self.conv.parameters()) + \
+                      sum(p.numel() for p in self.conv_norm.parameters())
+        proj_params = sum(p.numel() for p in self.projection.parameters())
+        pos_params = self.max_positions * llm_dim
+        total_params = sum(p.numel() for p in self.parameters())
+
+        print(f"\n{'='*60}")
+        print(f"CNNFuyuProjectorV2 (Conv + Linear Projector, 2x Down)")
+        print(f"  Mel Dim: {mel_dim}")
+        print(f"  Conv Channels: {C}, Kernel: {kernel_size}")
+        print(f"  Downsampling: 2x (single stride-2 conv)")
+        print(f"  Projection: Linear({C} → {llm_dim})")
+        print(f"  Max Positions: {self.max_positions} (~{self.max_positions * 2 * 10 / 1000:.1f}s audio)")
+        print(f"  Dropout: {dropout}")
+        print(f"  Architecture: mel[{mel_dim}] → Conv[{C}] → Linear → +PosEmb → [{llm_dim}]")
+        print(f"  Parameters: {total_params:,}")
+        print(f"    - Conv + Norm: {conv_params:,}")
+        print(f"    - Projection: {proj_params:,}")
+        print(f"    - PosEmb: {pos_params:,}")
+        print(f"{'='*60}\n")
+
+    def _init_weights(self):
+        """Initialize weights for stable training."""
+        nn.init.kaiming_normal_(self.conv.weight, nonlinearity='linear')
+        nn.init.zeros_(self.conv.bias)
+        nn.init.xavier_uniform_(self.projection.weight)
+        nn.init.zeros_(self.projection.bias)
+        nn.init.normal_(self.pos_embedding.weight, mean=0.0, std=0.02)
+
+    def forward(self, x):
+        """
+        Args:
+            x: [B, T, mel_dim] - mel spectrogram
+        Returns:
+            [B, T/2, llm_dim] - projected features
+        """
+        # Conv1d: learned local features + 2x downsample
+        x = x.transpose(1, 2)           # [B, mel_dim, T]
+        x = self.conv(x)                # [B, C, T/2]
+        x = self.act(x)
+        x = x.transpose(1, 2)           # [B, T/2, C]
+        x = self.conv_norm(x)
+
+        # Linear projection to LLM space
+        x = self.projection(x)          # [B, T/2, llm_dim]
+        x = self.proj_dropout(x)
+
+        # Add positional embeddings
+        seq_len = x.shape[1]
+        positions = torch.arange(seq_len, device=x.device)
+        positions = positions.clamp(max=self.max_positions - 1)
+        x = x + self.pos_embedding(positions)
+
+        # Final norm
+        x = self.norm_out(x)
+
+        return x
+
+
 class CNNFuyuProjector(nn.Module):
     """
     CNN Downsampler + Fuyu-Style Projector with Positional Embeddings.

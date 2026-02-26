@@ -108,7 +108,10 @@ def setup_llm(train_config, model_config, **kwargs):
 
 
 def setup_projector(train_config, model_config, **kwargs):
-    if model_config.projector == "cnn-fuyu":
+    if model_config.projector == "cnn-fuyu-v2":
+        from models.projector import CNNFuyuProjectorV2
+        projector = CNNFuyuProjectorV2(model_config)
+    elif model_config.projector == "cnn-fuyu":
         from models.projector import CNNFuyuProjector
         projector = CNNFuyuProjector(model_config)
     elif model_config.projector == "fuyu":
@@ -169,6 +172,9 @@ class ASRLLM(nn.Module):
         # Initialize metric flag for accuracy computation
         self.metric = kwargs.get("metric", True)  # Default to True if not specified
 
+        # Label smoothing for better generalization
+        self.label_smoothing = getattr(model_config, "label_smoothing", 0.0)
+
 
     def forward(
             self,
@@ -203,7 +209,7 @@ class ASRLLM(nn.Module):
             # Q-former
             encoder_outputs = self.projector(audio_mel, audio_mel_post_mask) # [B, T_enc_proj, D_llm]
 
-        elif self.model_config.projector in ["linear", "patched-linear", "patched-linear-v2", "context-aware", "context-aware-glu", "cov1d-linear", "fuyu", "cnn-fuyu"]:
+        elif self.model_config.projector in ["linear", "patched-linear", "patched-linear-v2", "context-aware", "context-aware-glu", "cov1d-linear", "fuyu", "cnn-fuyu", "cnn-fuyu-v2"]:
             # linear or conv1d + linear
             encoder_outputs = self.projector(audio_mel)  # [B, T_enc_proj, D_llm]
 
@@ -240,6 +246,16 @@ class ASRLLM(nn.Module):
         
         # Default path for training / evaluation
         model_outputs = self.llm(inputs_embeds=inputs_embeds, attention_mask=attention_mask, labels=labels)
+
+        # Override loss with label smoothing if configured
+        if self.label_smoothing > 0 and labels is not None:
+            loss_fct = CrossEntropyLoss(ignore_index=-100, label_smoothing=self.label_smoothing)
+            shift_logits = model_outputs.logits[..., :-1, :].contiguous()
+            shift_labels = labels[..., 1:].contiguous()
+            model_outputs.loss = loss_fct(
+                shift_logits.view(-1, shift_logits.size(-1)),
+                shift_labels.view(-1)
+            )
 
         # Metrics
         metrics = {}

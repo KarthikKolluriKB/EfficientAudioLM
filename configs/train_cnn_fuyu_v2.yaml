@@ -1,0 +1,131 @@
+model:
+  model_name: ASRLLM
+  file: models/model.py:ASRLLM
+  llm_model_name: llama3.2-3B
+  llm_model: meta-llama/Llama-3.2-3B
+  llm_model_path: null
+  llm_type: decoder_only
+  llm_dim: 3072
+
+  # CNNFuyuProjectorV2: pure Fuyu-style patch + linear projection
+  projector: cnn-fuyu-v2
+
+  # Feature settings
+  input_type: mel
+  mel_size: 80
+  normalize: true
+
+  # Patch settings (like Fuyu's image patches, but for mel)
+  # patch_length=2 → 2x downsampling (each patch = 2 frames × 80 bins = 160 dims)
+  patch_length: 2
+
+  # Maximum audio length in frames (3000 frames = 30s @ 10ms hop)
+  max_audio_length: 3000
+
+  # Regularization
+  mel_dropout: 0.1
+  label_smoothing: 0.1
+
+  modal: audio
+  encoder_type: finetune
+
+train:
+  model_name: ASRLLM
+  run_validation: true
+  batch_size: 8
+  batching_strategy: packing
+  context_length: 384
+  gradient_accumulation_steps: 4
+  grad_clip: 1.0
+  num_epochs: 40
+  num_workers: 8
+  warmup_steps: 2000
+  total_steps: 25000
+  validation_interval: 500
+  lr: 1.0e-4
+  weight_decay: 0.05
+  gamma: 0.85
+  seed: 42
+  mixed_precision: true
+  use_fp16: false
+  quantization: false
+  freeze_llm: true
+  freeze_encoder: true
+  freeze_layers: false
+  num_freeze_layers: 0
+  use_peft: false
+  one_gpu: true
+  save_model: true
+  use_fast_kernels: false
+  output_dir: output/cnn_fuyu_v2
+  val_batch_size: 4
+
+scheduler:
+  enabled: true
+  type: cosine_with_warmup
+  num_warmup_steps: 2000
+  num_cycles: 0.5
+  lr_end: 1.0e-7
+  use_hf: true
+
+early_stopping:
+  enabled: true
+  monitor: val/loss
+  mode: min
+  patience: 10
+  min_delta: 0.001
+
+lora:
+  r: 8
+  alpha: 32
+  dropout: 0.05
+  target_modules:
+    - q_proj
+    - v_proj
+
+data:
+  dataset: speech_dataset
+  file: datamodules/datasets.py:get_speech_dataset
+  train_data_path: data/train-clean-100.jsonl
+  val_data_path: data/dev-clean.jsonl
+  test_data_path: data/test-clean.jsonl
+  train_split: train
+  val_split: val
+  test_split: test
+  prompt: null
+  data_path: null
+  max_words: null
+  max_mel: null
+  fix_length_audio: -1
+  inference_mode: false
+  input_type: mel
+  mel_size: 80
+  normalize: false
+
+  # CNN projector audio length calculation
+  downsample_factor: 2
+
+  # Mel Normalization settings
+  mel_input_norm: true
+  mel_stats_path: data/mel_stats/
+  mel_mean_file: mel_means_train_100h.npy
+  mel_std_file: mel_stds_train_100h.npy
+  clamp_epsilon: 1e-8
+  verbose: true
+
+  # SpecAugment (training only)
+  spec_augment: true
+  spec_aug_freq_masks: 2
+  spec_aug_freq_width: 15
+  spec_aug_time_masks: 2
+  spec_aug_time_width: 50
+
+log:
+  use_wandb: true
+  wandb_dir: ./wandb
+  wandb_entity_name: ASRLLM
+  wandb_project_name: ASRLLM_llama_3B_Patv2_100h
+  wandb_exp_name: fuyu_v2_patch2_linear_2x
+  log_dir: ./logs
+  log_filename: cnn_fuyu_v2.log
+  log_interval: 50
